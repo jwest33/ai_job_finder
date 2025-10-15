@@ -1,4 +1,4 @@
-# Job Search & Matching System
+# Job Finding & AI Matching System
 
 AI-powered job hunting automation: scrape jobs from Indeed and Glassdoor, then match them to your resume using local AI.
 
@@ -16,15 +16,15 @@ AI-powered job hunting automation: scrape jobs from Indeed and Glassdoor, then m
 ### 1. Clone and Install
 
 ```bash
-git clone <repository-url>
-cd job_search
+git clone https://github.com/jwest33/ai_job_finder.git
+cd ai_job_finder
 
 # Create virtual environment
 python -m venv .venv
 
 # Activate virtual environment
 # Windows PowerShell:
-.venv\Scripts\Activate.ps1
+.venv/scripts/activate
 # Mac/Linux:
 source .venv/bin/activate
 
@@ -83,7 +83,112 @@ python scripts/job_matcher.py --input profiles/default/data/jobs_latest.json --f
 python scripts/job_matcher.py --input profiles/default/data/jobs_latest.json --full-pipeline --no-email
 ```
 
----
+
+## 6. Proxy Setup (Optional)
+
+Proxies are **optional** for job scraping. The Indeed scraper works with or without proxies:
+- **Without proxy** (`USE_PROXY=false`): Direct API calls from your local network
+- **With proxy** (`USE_PROXY=true`): Rotating IPs via IPRoyal for geographic diversity
+
+### Why Use Proxies?
+
+**Benefits:**
+- **Geographic diversity**: Different IPs may return location-specific job postings
+- **Redundancy**: If one IP fails, others may succeed
+- **Multiple perspectives**: Same search from different IPs can reveal different results
+
+**Trade-offs:**
+- **Bandwidth costs**: IPRoyal charges for data usage (~50-100KB per 100 results)
+- **More duplicates**: 60-75% overlap when using multiple IPs
+- **Longer runtime**: Proportional to `PROXY_ROTATION_COUNT`
+
+### IPRoyal Configuration
+
+#### 1. Sign up for IPRoyal
+
+Get residential proxies at [iproyal.com](https://iproyal.com/residential-proxies/)
+
+#### 2. Configure `.env`
+
+```env
+# Enable proxy
+USE_PROXY=true
+
+# IPRoyal credentials (from your dashboard)
+IPROYAL_HOST=geo.iproyal.com
+IPROYAL_PORT=12321
+IPROYAL_USERNAME=your_username_here
+IPROYAL_PASSWORD=your_password_here
+
+# IP rotation (how many different IPs per search)
+PROXY_ROTATION_COUNT=3
+```
+
+#### 3. Proxy Format & Session-Based Rotation
+
+IPRoyal uses session parameters appended to the **password field**:
+
+**Format:** `http://username:password_country-us_session-{id}_lifetime-30m@host:port`
+
+**Example:**
+```
+geo.iproyal.com:12321:username:password_country-us_session-abc123_lifetime-30m
+```
+
+**Session parameters:**
+- `_country-us` - Forces US-based IP addresses
+- `_session-{id}` - Unique session ID for IP binding (auto-generated)
+- `_lifetime-30m` - Session persists for 30 minutes with same IP
+
+#### 4. IP Rotation Settings
+
+Control how many different IPs to use per search:
+
+```env
+PROXY_ROTATION_COUNT=1   # No rotation (single IP per search)
+PROXY_ROTATION_COUNT=3   # Each search runs 3x with different IPs (recommended)
+PROXY_ROTATION_COUNT=5   # Maximum diversity (higher bandwidth)
+```
+
+**Example with rotation:**
+- 8 job titles × 1 location × 3 IPs = 24 total searches
+- Bandwidth: ~1.2 MB (vs ~0.4 MB without rotation)
+- Results: ~250-300 unique jobs (after deduplication from ~1200 raw)
+
+#### 5. Testing Proxy Connection
+
+After configuring `.env`, test your proxy:
+
+```bash
+# Activate virtual environment
+.venv\Scripts\Activate.ps1  # Windows
+source .venv/bin/activate   # Mac/Linux
+
+# Test proxy connectivity
+python test_ip_rotation.py
+```
+
+#### 6. Disable Proxy (Use Local Network)
+
+To scrape without proxy:
+
+```env
+USE_PROXY=false
+```
+
+The scraper will make direct API calls from your local network.
+
+### Bandwidth Estimates
+
+**Per search (50 results):**
+- Without proxy: No bandwidth charges (direct API call)
+- With proxy: ~55-105 KB per search
+
+**Example scenarios:**
+- 8 jobs × 1 location × 1 IP = ~0.4 MB
+- 8 jobs × 1 location × 3 IPs = ~1.2 MB
+- 8 jobs × 1 location × 5 IPs = ~2.0 MB
+
 
 ## Setup (Docker)
 
@@ -144,7 +249,7 @@ docker-compose -f docker/docker-compose.mcp.yml down
 source .venv/bin/activate   # Mac/Linux
 
 # Run job search
-python scripts/job_search.py
+python scripts/ai_job_finder.py
 
 # Match jobs with AI (full pipeline)
 python scripts/job_matcher.py --input profiles/default/data/jobs_latest.json --full-pipeline
@@ -163,7 +268,7 @@ docker exec -it job-search-app python -m src.cli.main search
 docker exec -it job-search-app python -m src.cli.main match
 
 # Or run scripts directly
-docker exec -it job-search-app python scripts/job_search.py
+docker exec -it job-search-app python scripts/ai_job_finder.py
 docker exec -it job-search-app python scripts/job_matcher.py --input profiles/default/data/jobs_latest.json --full-pipeline
 ```
 
