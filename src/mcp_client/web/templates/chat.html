@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP Client - Job Search Assistant</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <!-- Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Code highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+</head>
+<body>
+    <!-- Mobile Backdrop -->
+    <div id="mobile-backdrop" class="mobile-backdrop"></div>
+
+    <div class="container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>👾 Job Search</h2>
+                <button id="new-chat-btn" class="btn btn-primary">+ New Chat</button>
+            </div>
+
+            <!-- Conversations List -->
+            <div class="conversations-section">
+                <h3>Conversations</h3>
+                <div id="conversations-list" class="conversations-list">
+                    <!-- Populated by JavaScript -->
+                </div>
+            </div>
+
+            <!-- Tools Panel -->
+            <div class="tools-section collapsed">
+                <h3 class="section-toggle" onclick="toggleSection('tools')">
+                    🔧 Tools <span class="toggle-icon">▼</span>
+                </h3>
+                <div id="tools-list" class="tools-list">
+                    <!-- Populated by JavaScript -->
+                </div>
+            </div>
+
+            <!-- Context Stats -->
+            <div class="context-stats">
+                <h3>Context</h3>
+                <div class="stat-item">
+                    <span class="stat-label">Tokens:</span>
+                    <span id="token-count">0 / 8192</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Messages:</span>
+                    <span id="message-count">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Health:</span>
+                    <span id="context-health" class="health-indicator healthy">●●●○○</span>
+                </div>
+            </div>
+
+            <!-- Service Health -->
+            <div class="service-health">
+                <div class="service-status">
+                    <span class="status-dot" id="llama-status">●</span>
+                    <span>llama-server</span>
+                </div>
+                <div class="service-status">
+                    <span class="status-dot" id="mcp-status">●</span>
+                    <span>MCP server</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main class="chat-container">
+            <div class="chat-header">
+                <div class="header-left">
+                    <button id="mobile-menu-btn" class="mobile-menu-btn" title="Menu">☰</button>
+                    <button id="toggle-sidebar-btn" class="btn btn-icon" title="Toggle sidebar">◀</button>
+                    <h1 id="chat-title">Job Search AI Assistant</h1>
+                </div>
+                <div class="header-actions">
+                    <button id="settings-btn" class="btn btn-icon" title="Settings">🛈</button>
+                </div>
+            </div>
+
+            <!-- Messages Area -->
+            <div id="messages" class="messages">
+                <!-- Welcome message -->
+                <div class="message system-message">
+                    <div class="message-content">
+                        <h2>Welcome to Job Chat!</h2>
+                        <p>Control your job search system with natural language.</p>
+                        <ul>
+                            <li>Create and manage profiles</li>
+                            <li>Search for jobs</li>
+                            <li>Match jobs against your resume</li>
+                            <li>View statistics and reports</li>
+                        </ul>
+                        <p><strong>Try:</strong> "Show me my current profile" or "List all available tools"</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="input-area">
+                <div class="input-container">
+                    <textarea
+                        id="user-input"
+                        placeholder="Type your message here..."
+                        rows="1"
+                        autocomplete="off"
+                        autofocus
+                    ></textarea>
+                    <button id="send-btn" class="btn btn-send" disabled>
+                        <span class="send-icon">➤</span>
+                    </button>
+                </div>
+                <div class="input-hints">
+                    <span class="hint">Press Enter to send</span>
+                    <span class="hint">Shift+Enter for new line</span>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Loading Indicator -->
+    <div id="loading-indicator" class="loading-indicator hidden">
+        <div class="spinner"></div>
+        <span>Thinking...</span>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
+</body>
+</html>

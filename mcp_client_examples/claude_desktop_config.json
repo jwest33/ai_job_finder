@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "job-search": {
+      "command": "python",
+      "args": [
+        "-m",
+        "uvicorn",
+        "mcp_server.server:app",
+        "--host",
+        "localhost",
+        "--port",
+        "3000"
+      ],
+      "cwd": "C:/Users/Jake/projects/job_search",
+      "env": {
+        "MCP_SERVER_HOST": "localhost",
+        "MCP_SERVER_PORT": "3000",
+        "MCP_AUTH_ENABLED": "true",
+        "MCP_AUTH_TOKEN": "your-token-here"
+      }
+    }
+  }
+}

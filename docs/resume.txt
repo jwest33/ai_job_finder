@@ -1,0 +1,61 @@
+JOHN DOE
+Email: john.doe@example.com | Phone: (555) 123-4567 | Location: Remote
+LinkedIn: linkedin.com/in/johndoe | GitHub: github.com/johndoe
+
+PROFESSIONAL SUMMARY
+Results-driven Payroll Specialist with 7+ years of experience managing end-to-end payroll operations for organizations with 500+ employees across multiple states. Expert in ADP Workforce Now, Paychex, and advanced Excel analysis. Proven track record of ensuring 100% compliance with federal and state payroll regulations while maintaining exceptional accuracy and meeting tight deadlines.
+
+PROFESSIONAL EXPERIENCE
+
+Senior Payroll Specialist
+ABC Corporation | Remote | January 2020 - Present
+• Manage biweekly payroll processing for 650+ employees across 15 states using ADP Workforce Now
+• Ensure 100% compliance with multi-state payroll tax regulations, wage laws, and reporting requirements
+• Process quarterly and annual tax filings (941, 940, W-2s, 1099s) with zero errors
+• Reconcile payroll accounts monthly, identifying and resolving discrepancies within 24 hours
+• Collaborate with HR and Finance teams to integrate payroll data with benefits and accounting systems
+• Reduced payroll processing time by 25% through process automation and Excel macros
+• Train and mentor 2 junior payroll coordinators on systems and best practices
+
+Payroll Coordinator
+XYZ Services Inc. | New York, NY | March 2017 - December 2019
+• Processed semi-monthly payroll for 300+ employees using Paychex Flex
+• Maintained employee payroll records, tracked PTO, and processed garnishments and deductions
+• Assisted with year-end tax reporting and W-2 distribution
+• Responded to employee payroll inquiries with 24-hour turnaround time
+• Conducted payroll audits to ensure data accuracy and compliance
+• Implemented new time-tracking system that reduced errors by 40%
+
+Accounting Assistant
+Small Business LLC | Brooklyn, NY | June 2015 - February 2017
+• Assisted with accounts payable, receivable, and basic bookkeeping
+• Prepared journal entries and bank reconciliations using QuickBooks
+• Processed employee expense reimbursements and vendor payments
+• Supported month-end close activities and financial reporting
+
+EDUCATION
+
+Bachelor of Science in Accounting
+State University of New York | Graduated May 2015
+GPA: 3.7/4.0
+
+CERTIFICATIONS & TRAINING
+• Certified Payroll Professional (CPP) - In Progress
+• ADP Workforce Now Certification (2021)
+• Multi-State Payroll Tax Compliance Training (2020)
+
+TECHNICAL SKILLS
+• Payroll Systems: ADP Workforce Now (Expert), Paychex Flex (Advanced), QuickBooks Payroll (Intermediate)
+• Software: Microsoft Excel (Advanced - pivot tables, VLOOKUP, macros), Google Sheets, QuickBooks
+• Compliance: Multi-state tax regulations, FLSA, wage garnishments, benefits administration
+• Other: Time & attendance systems, HRIS data management, SQL (basic queries)
+
+KEY ACHIEVEMENTS
+• Maintained 100% payroll accuracy rate over 4 consecutive years
+• Successfully migrated payroll data from legacy system to ADP with zero disruption
+• Identified $50K in payroll tax overpayments and recovered funds for the company
+• Developed Excel dashboard for real-time payroll metrics reporting to executives
+
+PROFESSIONAL AFFILIATIONS
+• American Payroll Association (APA) Member
+• Society for Human Resource Management (SHRM) Member

@@ -1,0 +1,32 @@
+job_requirements:
+  # What you're looking for in your next role
+  career_goals: |
+    Seeking Payroll Manager or Senior Payroll Operations role
+    within a remote-first organization. Interested in opportunities emphasizing leadership,
+    system implementation, US payroll, international payroll, compliance, process improvement, process automation and efficiency. Looking to join
+    a company that values innovation, technology, and building scalable payroll operations.
+
+  # Non-negotiable requirements (deal-breakers)
+  must_haves:
+  - 100% remote role
+  - Minimum salary of $100,000/year
+  - Focus on leadership, payroll operations, or compliance
+  - Opportunities for process improvement and automation
+  - Full-time, permanent position with or without international exposure
+
+  # Red flags to watch for (automatic disqualifiers)
+  avoid:
+  - Contract assignments
+  - Staffing agencies or third-party recruiters
+  - Entry-level or junior payroll roles
+  - In-office or hybrid jobs
+  - Accounting-heavy roles without payroll focus
+preferences:
+  remote_only: true
+  min_salary: 100000
+  max_salary: 200000
+  salary_period: annual or salary
+  locations:
+  - Remote   
+  job_types:
+  - full-time
