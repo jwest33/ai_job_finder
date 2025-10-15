@@ -6,7 +6,7 @@ Requires initial page visit to obtain token, then makes GraphQL queries.
 
 Based on JobSpy by speedyapply: https://github.com/speedyapply/JobSpy
 Copyright (c) 2023 Cullen Watson
-Licensed under MIT License. See LICENSE-JOBSPY.txt for details.
+Licensed under MIT License. See LICENSE-JOBSPY for details.
 """
 
 import json

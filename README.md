@@ -216,7 +216,7 @@ docker exec -it job-search-mcp python -m src.cli.main match
 Job scraping functionality is based on [JobSpy](https://github.com/speedyapply/JobSpy) by Cullen Watson (speedyapply).
 
 Copyright (c) 2023 Cullen Watson
-Licensed under the MIT License. See [LICENSE-JOBSPY.txt](LICENSE-JOBSPY.txt) for full license text.
+Licensed under the MIT License. See [LICENSE-JOBSPY](LICENSE-JOBSPY) for full license text.
 
 Thank you for the excellent foundation!
 
@@ -224,4 +224,4 @@ Thank you for the excellent foundation!
 
 ## License
 
-For personal/educational use only.
+MIT Open License. See [LICENSE](LICENSE).
