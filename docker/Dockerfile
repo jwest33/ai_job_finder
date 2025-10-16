@@ -86,7 +86,12 @@ RUN mkdir -p /app/data \
 # Copy entrypoint and CLI wrapper scripts
 COPY docker/entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY docker/cli.sh /usr/local/bin/cli
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh && \
+
+# Convert line endings to Unix format (in case they were saved with Windows CRLF)
+# and make scripts executable
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh && \
+    sed -i 's/\r$//' /usr/local/bin/cli && \
+    chmod +x /usr/local/bin/docker-entrypoint.sh && \
     chmod +x /usr/local/bin/cli
 
 # Create cron log file
