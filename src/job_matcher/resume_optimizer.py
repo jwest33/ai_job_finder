@@ -395,13 +395,45 @@ Be specific and actionable. Reference actual content from the resume where possi
                 "resume_summary": "",
             }
 
+        # Define JSON schema for resume optimization
+        json_schema = {
+            "type": "object",
+            "properties": {
+                "keywords": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Important keywords from job description"
+                },
+                "experience_highlights": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Key achievements to feature prominently"
+                },
+                "sections_to_expand": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Resume sections to expand with guidance"
+                },
+                "cover_letter_points": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Key talking points for cover letter"
+                },
+                "resume_summary": {
+                    "type": "string",
+                    "description": "Tailored professional summary statement"
+                }
+            },
+            "required": ["keywords", "experience_highlights", "sections_to_expand", "cover_letter_points", "resume_summary"]
+        }
+
         # Create batch queue processor
         processor = BatchQueueProcessor(
             max_workers=max_workers,
             queue_delay_ms=queue_delay_ms
         )
 
-        # Process batch
+        # Process batch with async batch mode enabled
         optimized_jobs = processor.process_batch(
             jobs=jobs_to_process,
             prompt_generator=prompt_generator,
@@ -412,6 +444,10 @@ Be specific and actionable. Reference actual content from the resume where possi
             checkpoint_stage="optimization",
             failure_tracker=self.failure_tracker,
             failure_stage="optimization",
+            llama_client=self.client,  # Pass LlamaClient for async batch mode
+            temperature=0.5,  # AI generation temperature (higher for creative recommendations)
+            max_tokens=2048,  # Max tokens for AI generation
+            json_schema=json_schema,  # JSON schema for validation
         )
 
         return optimized_jobs

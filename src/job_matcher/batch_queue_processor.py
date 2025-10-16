@@ -286,13 +286,29 @@ class BatchQueueProcessor:
         progress_queue = []    # [(job_index, job)]
 
         # Check if llama_client and required parameters were provided for async batch mode
+        # Debug: Print each condition to diagnose why async mode might not be available
+        llama_client_provided = llama_client is not None
+        has_async_method = hasattr(llama_client, 'generate_json_batch_async') if llama_client else False
+        temperature_provided = temperature is not None
+        max_tokens_provided = max_tokens is not None
+        json_schema_provided = json_schema is not None
+
         use_async_batch = (
-            llama_client is not None
-            and hasattr(llama_client, 'generate_json_batch_async')
-            and temperature is not None
-            and max_tokens is not None
-            and json_schema is not None
+            llama_client_provided
+            and has_async_method
+            and temperature_provided
+            and max_tokens_provided
+            and json_schema_provided
         )
+
+        # Debug output (can be removed after diagnosis)
+        print(f"[DEBUG] Async batch mode checks:")
+        print(f"   llama_client provided: {llama_client_provided}")
+        print(f"   has async method: {has_async_method}")
+        print(f"   temperature provided: {temperature_provided} (value: {temperature})")
+        print(f"   max_tokens provided: {max_tokens_provided} (value: {max_tokens})")
+        print(f"   json_schema provided: {json_schema_provided}")
+        print(f"   → use_async_batch: {use_async_batch}")
 
         if use_async_batch:
             # Use async batch mode for optimal GPU saturation

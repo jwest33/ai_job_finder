@@ -428,13 +428,40 @@ Be specific and reference actual details from the resume, candidate profile, and
                 "assessment": "Failed to analyze job",
             }
 
+        # Define JSON schema for gap analysis
+        json_schema = {
+            "type": "object",
+            "properties": {
+                "strengths": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of candidate strengths for this role"
+                },
+                "gaps": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of skills or experience gaps"
+                },
+                "red_flags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of serious concerns or deal-breakers"
+                },
+                "assessment": {
+                    "type": "string",
+                    "description": "Overall 2-3 sentence assessment"
+                }
+            },
+            "required": ["strengths", "gaps", "red_flags", "assessment"]
+        }
+
         # Create batch queue processor
         processor = BatchQueueProcessor(
             max_workers=max_workers,
             queue_delay_ms=queue_delay_ms
         )
 
-        # Process batch
+        # Process batch with async batch mode enabled
         analyzed_jobs = processor.process_batch(
             jobs=jobs_to_process,
             prompt_generator=prompt_generator,
@@ -445,6 +472,10 @@ Be specific and reference actual details from the resume, candidate profile, and
             checkpoint_stage="analysis",
             failure_tracker=self.failure_tracker,
             failure_stage="analysis",
+            llama_client=self.client,  # Pass LlamaClient for async batch mode
+            temperature=0.4,  # AI generation temperature (slightly higher for creative analysis)
+            max_tokens=2048,  # Max tokens for AI generation (more for detailed analysis)
+            json_schema=json_schema,  # JSON schema for validation
         )
 
         return analyzed_jobs

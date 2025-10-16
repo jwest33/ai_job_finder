@@ -12,6 +12,17 @@ import requests
 from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
 
+# Try to import aiohttp at module level for async batch mode
+# If not available, async batch mode will be disabled
+try:
+    import aiohttp
+    import asyncio
+    ASYNC_AVAILABLE = True
+except ImportError:
+    ASYNC_AVAILABLE = False
+    print("[WARNING] aiohttp not available - async batch mode will be disabled")
+    print("          Install with: pip install aiohttp>=3.9.0")
+
 load_dotenv()
 
 
@@ -361,8 +372,11 @@ class LlamaClient:
         Returns:
             List of parsed JSON dicts (or None for failed requests), in same order as prompts
         """
-        import aiohttp
-        import asyncio
+        if not ASYNC_AVAILABLE:
+            raise RuntimeError(
+                "Async batch mode not available: aiohttp not installed. "
+                "Install with: pip install aiohttp>=3.9.0"
+            )
 
         async def single_request(session: aiohttp.ClientSession, prompt: str, index: int) -> tuple[int, Optional[Dict[str, Any]]]:
             """

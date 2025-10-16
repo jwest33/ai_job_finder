@@ -53,7 +53,10 @@ COPY requirements.txt .
 RUN pip install --upgrade pip && \
     pip install -r requirements.txt && \
     playwright install chromium && \
-    playwright install-deps chromium
+    playwright install-deps chromium && \
+    # Verify critical dependencies for async batch mode
+    python -c "import aiohttp; print(f'✓ aiohttp {aiohttp.__version__} installed')" && \
+    python -c "import asyncio; print('✓ asyncio available')"
 
 # =============================================================================
 # Stage 3: Application

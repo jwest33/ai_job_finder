@@ -211,6 +211,11 @@ class JobMatcherPipeline:
         if failed_jobs:
             self.export_failed_jobs("scoring", failed_jobs)
 
+        # Export rejected jobs (below threshold) for manual review
+        rejected_file = None
+        if rejected:
+            rejected_file = self.save_rejected_jobs(rejected)
+
         # Mark ALL processed jobs as tracked (matched, rejected, filtered)
         # This prevents re-processing on subsequent runs
         print("\nMarking all processed jobs in tracker...")
@@ -224,6 +229,8 @@ class JobMatcherPipeline:
         print(f"   AI Scored: {len(scored_jobs)} jobs")
         print(f"   Matched: {len(matched)} jobs (score >= {min_score})")
         print(f"   Rejected: {len(rejected)} jobs (score < {min_score})")
+        if rejected_file:
+            print(f"   Rejected jobs saved to: {rejected_file}")
         print(f"   Failed: {len(failed_jobs)} jobs")
 
         return matched
@@ -379,6 +386,34 @@ class JobMatcherPipeline:
             return output_file
 
         return None
+
+    def save_rejected_jobs(self, rejected_jobs: List[Dict[str, Any]]) -> Optional[str]:
+        """
+        Save rejected jobs (below threshold) to JSON file for manual review
+
+        Args:
+            rejected_jobs: List of job dicts that scored below threshold
+
+        Returns:
+            Path to saved file or None if no rejected jobs
+        """
+        if not rejected_jobs:
+            return None
+
+        from src.utils.profile_manager import ProfilePaths
+        paths = ProfilePaths()
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_file = str(paths.data_dir / f"jobs_{self.job_source}_rejected_{timestamp}.json")
+
+        # Ensure data directory exists
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(rejected_jobs, f, indent=2, ensure_ascii=False)
+
+        print(f"\n[INFO] Rejected jobs (below threshold) saved to: {output_file}")
+
+        return output_file
 
     def load_checkpoint_data(self, input_file: str) -> Optional[List[Dict[str, Any]]]:
         """
