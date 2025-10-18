@@ -326,6 +326,93 @@ class JobTracker:
 
         return removed
 
+    def get_jobs_by_date_range(
+        self,
+        from_date: str,
+        to_date: str,
+        sources: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get jobs processed within a date range, optionally filtered by source
+
+        Args:
+            from_date: Start date (YYYY-MM-DD format)
+            to_date: End date (YYYY-MM-DD format)
+            sources: List of source names (e.g., ['indeed', 'linkedin']) to filter by
+
+        Returns:
+            List of job info dicts matching criteria
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        query = """
+            SELECT * FROM processed_jobs
+            WHERE report_date >= ? AND report_date <= ?
+        """
+        params = [from_date, to_date]
+
+        # Filter by source if specified
+        if sources:
+            # Build source filter based on URL patterns
+            source_conditions = []
+            for source in sources:
+                source_conditions.append(f"job_url LIKE '%{source.lower()}%'")
+            if source_conditions:
+                query += f" AND ({' OR '.join(source_conditions)})"
+
+        query += " ORDER BY report_date DESC, match_score DESC"
+
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+        conn.close()
+
+        return [dict(row) for row in rows]
+
+    def delete_jobs_by_date_range(
+        self,
+        from_date: str,
+        to_date: str,
+        sources: Optional[List[str]] = None,
+    ) -> int:
+        """
+        Delete jobs processed within a date range, optionally filtered by source
+
+        Args:
+            from_date: Start date (YYYY-MM-DD format)
+            to_date: End date (YYYY-MM-DD format)
+            sources: List of source names (e.g., ['indeed', 'linkedin']) to filter by
+
+        Returns:
+            Number of jobs deleted
+        """
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        query = """
+            DELETE FROM processed_jobs
+            WHERE report_date >= ? AND report_date <= ?
+        """
+        params = [from_date, to_date]
+
+        # Filter by source if specified
+        if sources:
+            # Build source filter based on URL patterns
+            source_conditions = []
+            for source in sources:
+                source_conditions.append(f"job_url LIKE '%{source.lower()}%'")
+            if source_conditions:
+                query += f" AND ({' OR '.join(source_conditions)})"
+
+        cursor.execute(query, params)
+        removed = cursor.rowcount
+        conn.commit()
+        conn.close()
+
+        return removed
+
     def reset(self):
         """Clear all jobs from tracker (use with caution!)"""
         conn = sqlite3.connect(self.db_path)

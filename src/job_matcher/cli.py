@@ -332,6 +332,224 @@ def find_latest_matched_jobs_by_source():
     return sources
 
 
+@matcher_group.command(name="reprocess")
+@click.option("--from-date", required=True, help="Start date (YYYY-MM-DD)")
+@click.option("--to-date", required=True, help="End date (YYYY-MM-DD)")
+@click.option("--sources", help="Comma-separated list of sources (e.g., 'indeed,linkedin')")
+@click.option("--dry-run", is_flag=True, help="Show what would be reprocessed without doing it")
+@click.option("--min-score", type=int, help="Minimum match score (default: from .env)")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmations")
+def reprocess_date_range(from_date, to_date, sources, dry_run, min_score, yes):
+    """Reprocess jobs from a specific date range
+
+    This command will:
+    1. Query jobs processed within the date range
+    2. Remove them from the job tracker database
+    3. Remove them from any active checkpoint
+    4. Rerun the full pipeline (scoring + analysis + optimization)
+
+    Examples:
+        python cli.py matcher reprocess --from-date 2025-10-15 --to-date 2025-10-17
+        python cli.py matcher reprocess --from-date 2025-10-15 --to-date 2025-10-17 --sources indeed
+        python cli.py matcher reprocess --from-date 2025-10-15 --to-date 2025-10-17 --dry-run
+    """
+    from datetime import datetime
+    from src.job_matcher.job_tracker import JobTracker
+    from src.job_matcher.checkpoint_manager import CheckpointManager
+    import json
+
+    print_header("Job Matcher - Reprocess Date Range")
+
+    try:
+        # Validate date format
+        try:
+            datetime.strptime(from_date, "%Y-%m-%d")
+            datetime.strptime(to_date, "%Y-%m-%d")
+        except ValueError:
+            print_error("Invalid date format. Use YYYY-MM-DD")
+            sys.exit(1)
+
+        # Parse sources if provided
+        source_list = None
+        if sources:
+            source_list = [s.strip().lower() for s in sources.split(",")]
+            print_info(f"Filtering by sources: {', '.join(source_list)}")
+        else:
+            print_info("Processing all sources")
+
+        # Initialize tracker and checkpoint manager
+        tracker = JobTracker()
+        checkpoint_mgr = CheckpointManager()
+
+        # Query jobs in date range
+        print_section("Finding Jobs to Reprocess")
+        jobs_to_reprocess = tracker.get_jobs_by_date_range(from_date, to_date, source_list)
+
+        if not jobs_to_reprocess:
+            print_success(f"No jobs found in date range {from_date} to {to_date}")
+            return
+
+        print_success(f"Found {len(jobs_to_reprocess)} jobs to reprocess")
+
+        # Group by source for display
+        source_counts = {}
+        for job in jobs_to_reprocess:
+            url = job.get("job_url", "")
+            if "indeed" in url:
+                source_counts["indeed"] = source_counts.get("indeed", 0) + 1
+            elif "glassdoor" in url:
+                source_counts["glassdoor"] = source_counts.get("glassdoor", 0) + 1
+            elif "linkedin" in url:
+                source_counts["linkedin"] = source_counts.get("linkedin", 0) + 1
+            elif "ziprecruiter" in url:
+                source_counts["ziprecruiter"] = source_counts.get("ziprecruiter", 0) + 1
+            else:
+                source_counts["other"] = source_counts.get("other", 0) + 1
+
+        print_info("\nJobs by source:")
+        for source, count in sorted(source_counts.items()):
+            print_info(f"  {source}: {count} jobs")
+
+        # Show sample jobs
+        print_info("\nSample jobs (first 5):")
+        for job in jobs_to_reprocess[:5]:
+            score = job.get("match_score", "N/A")
+            print_info(f"  [{score}] {job.get('job_title')} at {job.get('company')}")
+
+        if len(jobs_to_reprocess) > 5:
+            print_info(f"  ... and {len(jobs_to_reprocess) - 5} more")
+
+        # Dry run mode - stop here
+        if dry_run:
+            print_success("\n[DRY RUN] No changes made. Remove --dry-run to execute.")
+            return
+
+        # Confirm before proceeding
+        if not yes:
+            print("\n")
+            if not confirm(f"Reprocess {len(jobs_to_reprocess)} jobs? This will clear existing scores/analysis."):
+                print_info("Cancelled")
+                return
+
+        # Extract URLs for deletion/checkpoint removal
+        urls_to_remove = [job["job_url"] for job in jobs_to_reprocess]
+
+        # Remove from tracker database
+        print_section("Removing Jobs from Tracker")
+        removed_count = tracker.delete_jobs_by_date_range(from_date, to_date, source_list)
+        print_success(f"Removed {removed_count} jobs from tracker database")
+
+        # Remove from checkpoint if exists
+        print_section("Updating Checkpoint")
+        if checkpoint_mgr.checkpoint_data:
+            checkpoint_mgr.remove_urls_from_checkpoint(urls_to_remove)
+            print_success(f"Removed {len(urls_to_remove)} URLs from checkpoint")
+        else:
+            print_info("No active checkpoint found")
+
+        # Load jobs from source files and filter to only reprocess URLs
+        print_section("Loading Job Data for Reprocessing")
+
+        # Group jobs by source file
+        jobs_by_source = {}
+        for job in jobs_to_reprocess:
+            url = job.get("job_url", "")
+            source_name = None
+            if "indeed" in url:
+                source_name = "indeed"
+            elif "glassdoor" in url:
+                source_name = "glassdoor"
+            elif "linkedin" in url:
+                source_name = "linkedin"
+            elif "ziprecruiter" in url:
+                source_name = "ziprecruiter"
+
+            if source_name:
+                if source_name not in jobs_by_source:
+                    jobs_by_source[source_name] = []
+                jobs_by_source[source_name].append(url)
+
+        # Import JobMatcherPipeline
+        import importlib.util
+        import os
+
+        script_path = os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "job_matcher.py")
+        spec = importlib.util.spec_from_file_location("job_matcher_script", script_path)
+        job_matcher_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(job_matcher_module)
+
+        JobMatcherPipeline = job_matcher_module.JobMatcherPipeline
+
+        # Process each source
+        total_matched = 0
+        for source_name, url_list in jobs_by_source.items():
+            print_section(f"Reprocessing {source_name.title()} ({len(url_list)} jobs)")
+
+            # Load source file
+            source_file = ProfilePaths().data_dir / f"jobs_{source_name}_latest.json"
+            if not source_file.exists():
+                print_error(f"Source file not found: {source_file}")
+                continue
+
+            # Load all jobs from source
+            with open(source_file, "r", encoding="utf-8") as f:
+                all_jobs = json.load(f)
+
+            # Filter to only jobs we want to reprocess
+            jobs_to_run = [job for job in all_jobs if job.get("job_url") in url_list]
+
+            print_info(f"Loaded {len(jobs_to_run)} jobs from {source_file}")
+
+            # Run full pipeline on these jobs
+            pipeline = JobMatcherPipeline(
+                enable_checkpoints=False
+            )
+
+            # Load resume/requirements
+            print_info("Loading resume and requirements...")
+            if not pipeline.analyzer.load_all():
+                print_error("Failed to load resume and requirements")
+                continue
+
+            # Test llama-server
+            print_info("Testing llama-server connection...")
+            if not pipeline.client.test_connection():
+                print_error("Failed to connect to llama-server")
+                continue
+
+            # Run pipeline stages
+            matched_jobs = pipeline.run_scoring_pass(jobs_to_run, min_score or 70)
+            if matched_jobs:
+                print_success(f"Pass 1 (Scoring): {len(matched_jobs)} jobs matched")
+
+                analyzed_jobs = pipeline.run_analysis_pass(matched_jobs)
+                print_success(f"Pass 2 (Analysis): {len(analyzed_jobs)} jobs analyzed")
+
+                optimized_jobs = pipeline.run_optimization_pass(analyzed_jobs)
+                print_success(f"Pass 3 (Optimization): {len(optimized_jobs)} jobs optimized")
+
+                # Save results
+                output_file = pipeline.save_matched_jobs(optimized_jobs)
+                print_info(f"Saved to: {output_file}")
+
+                # Update tracker
+                pipeline.update_tracker(optimized_jobs)
+
+                total_matched += len(optimized_jobs)
+            else:
+                print_info("No matches found for this source")
+
+        print_section("Reprocessing Complete")
+        print_success(f"Total matched jobs: {total_matched}")
+
+    except KeyboardInterrupt:
+        print_error("\nInterrupted by user")
+        sys.exit(130)
+    except Exception as e:
+        handle_error(e, verbose=cli_state.verbose)
+        sys.exit(1)
+
+
 def find_available_source_files():
     """Find all available jobs_*_latest.json files
 

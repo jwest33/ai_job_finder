@@ -266,6 +266,42 @@ class CheckpointManager:
 
         return self.checkpoint_data["output_files"].get(file_type)
 
+    def remove_urls_from_checkpoint(self, urls: List[str], stage: Optional[str] = None):
+        """
+        Remove specific URLs from checkpoint (for reprocessing)
+
+        Args:
+            urls: List of job URLs to remove
+            stage: Specific stage to remove from, or None for all stages
+        """
+        if not self.checkpoint_data:
+            return
+
+        with self._lock:
+            stages_to_clear = [stage] if stage else ["scoring", "analysis", "optimization"]
+
+            for stage_name in stages_to_clear:
+                if stage_name not in self.checkpoint_data["stages"]:
+                    continue
+
+                stage_data = self.checkpoint_data["stages"][stage_name]
+
+                # Remove URLs from processed list
+                original_count = len(stage_data["processed_urls"])
+                stage_data["processed_urls"] = [
+                    url for url in stage_data["processed_urls"] if url not in urls
+                ]
+                removed_count = original_count - len(stage_data["processed_urls"])
+
+                # Update processed count
+                stage_data["processed_count"] = len(stage_data["processed_urls"])
+
+                # Mark stage as incomplete if we removed URLs
+                if removed_count > 0:
+                    stage_data["completed"] = False
+
+            self._save()
+
     def clear_checkpoint(self):
         """Remove the active checkpoint file"""
         if self.active_checkpoint_file.exists():

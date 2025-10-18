@@ -52,6 +52,8 @@ Edit the following files:
 ```bash
 # Start llama-server on localhost:8080 (required for job matching)
 llama-server --model /path/to/model.gguf --ctx-size 8192 --port 8080
+
+llama-server --model "C:\models\Qwen3-30B-A3B-Instruct-2507\Qwen3-30B-A3B-Instruct-2507-Q6_K.gguf"  --ctx-size 6144 --poll 100 --ubatch-size 2048
 ```
 
 ### 5. Setup Email Delivery (Optional)
