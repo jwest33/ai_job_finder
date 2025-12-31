@@ -13,6 +13,7 @@ import click
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.utils.profile_manager import ProfilePaths
+from src.core.storage import JobStorage
 from src.cli.utils import (
     print_header,
     print_section,
@@ -265,25 +266,35 @@ def send_email(report_file, recipient, subject):
             for source, report_path in available_sources.items():
                 print_info(f"Loading {source} jobs...")
 
-                # Find the LATEST matched JSON for this source in profile's data dir
-                paths = ProfilePaths()
+                # First try to load from DuckDB
+                storage = JobStorage()
+                df = storage.load_matched_jobs(source, min_score=0)
 
-                # Pattern: jobs_{source}_matched_*.json
-                pattern = f"jobs_{source}_matched_*.json"
-                matched_files = list(paths.data_dir.glob(pattern))
-
-                if matched_files:
-                    # Sort by modification time, get most recent
-                    matched_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-                    jobs_file = matched_files[0]
-
-                    with open(jobs_file, "r", encoding="utf-8") as f:
-                        jobs = json.load(f)
-                    print_success(f"  [SUCCESS] Loaded {len(jobs)} {source} jobs from {jobs_file.name}")
+                if df is not None and not df.empty:
+                    jobs = df.to_dict("records")
+                    print_success(f"  [SUCCESS] Loaded {len(jobs)} {source} jobs from database")
                     jobs_by_source.append((source, jobs))
                     report_paths.append(str(report_path))
                 else:
-                    print_info(f"  [WARNING] No matched jobs found for {source}, skipping")
+                    # Fall back to JSON file
+                    paths = ProfilePaths()
+
+                    # Pattern: jobs_{source}_matched_*.json
+                    pattern = f"jobs_{source}_matched_*.json"
+                    matched_files = list(paths.data_dir.glob(pattern))
+
+                    if matched_files:
+                        # Sort by modification time, get most recent
+                        matched_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                        jobs_file = matched_files[0]
+
+                        with open(jobs_file, "r", encoding="utf-8") as f:
+                            jobs = json.load(f)
+                        print_success(f"  [SUCCESS] Loaded {len(jobs)} {source} jobs from {jobs_file.name}")
+                        jobs_by_source.append((source, jobs))
+                        report_paths.append(str(report_path))
+                    else:
+                        print_info(f"  [WARNING] No matched jobs found for {source}, skipping")
 
             if not jobs_by_source:
                 print_error("No jobs data found for any source")
@@ -330,22 +341,30 @@ def send_email(report_file, recipient, subject):
             if source_match:
                 source = source_match.group(1)
 
-                # Find the LATEST matched JSON for this source in profile's data dir
-                paths = ProfilePaths()
-                pattern = f"jobs_{source}_matched_*.json"
-                matched_files = list(paths.data_dir.glob(pattern))
+                # First try to load from DuckDB
+                storage = JobStorage()
+                df = storage.load_matched_jobs(source, min_score=0)
 
-                if matched_files:
-                    # Sort by modification time, get most recent
-                    matched_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-                    jobs_file = matched_files[0]
-
-                    print_success(f"Loading latest jobs data from: {jobs_file.name}")
-                    with open(jobs_file, "r", encoding="utf-8") as f:
-                        jobs = json.load(f)
+                if df is not None and not df.empty:
+                    jobs = df.to_dict("records")
+                    print_success(f"Loaded {len(jobs)} jobs from database")
                 else:
-                    print_info(f"No matched jobs found for {source}, sending minimal email")
-                    jobs = []
+                    # Fall back to JSON file
+                    paths = ProfilePaths()
+                    pattern = f"jobs_{source}_matched_*.json"
+                    matched_files = list(paths.data_dir.glob(pattern))
+
+                    if matched_files:
+                        # Sort by modification time, get most recent
+                        matched_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+                        jobs_file = matched_files[0]
+
+                        print_success(f"Loading latest jobs data from: {jobs_file.name}")
+                        with open(jobs_file, "r", encoding="utf-8") as f:
+                            jobs = json.load(f)
+                    else:
+                        print_info(f"No matched jobs found for {source}, sending minimal email")
+                        jobs = []
             else:
                 print_info("Could not determine source from report filename, sending minimal email")
                 jobs = []

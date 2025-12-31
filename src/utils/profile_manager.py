@@ -61,8 +61,13 @@ class ProfilePaths:
 
     @property
     def failure_tracker_db(self) -> Path:
-        """Get failure tracker database path for profile"""
+        """Get failure tracker database path for profile (legacy SQLite)"""
         return self.data_dir / "job_failures.db"
+
+    @property
+    def duckdb_path(self) -> Path:
+        """Get DuckDB database path for profile"""
+        return self.data_dir / "jobs.duckdb"
 
     @property
     def checkpoint_file(self) -> Path:

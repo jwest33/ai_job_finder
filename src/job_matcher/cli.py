@@ -518,7 +518,7 @@ def reprocess_date_range(from_date, to_date, sources, dry_run, min_score, yes):
                 continue
 
             # Run pipeline stages
-            matched_jobs = pipeline.run_scoring_pass(jobs_to_run, min_score or 70)
+            matched_jobs = pipeline.run_scoring_pass(jobs_to_run, min_score or 60)
             if matched_jobs:
                 print_success(f"Pass 1 (Scoring): {len(matched_jobs)} jobs matched")
 

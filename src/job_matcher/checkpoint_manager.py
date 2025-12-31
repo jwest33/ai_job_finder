@@ -16,9 +16,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
-# Add parent directory to path for profile_manager import
+# Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from src.core.database import get_database
 from src.utils.profile_manager import ProfilePaths
 
 
@@ -30,59 +31,75 @@ class CheckpointManager:
         Initialize CheckpointManager
 
         Args:
-            checkpoint_dir: Directory to store checkpoint files (default: from profile)
+            checkpoint_dir: Ignored (kept for compatibility)
             profile_name: Profile name (default: from .env ACTIVE_PROFILE)
         """
-        # Get profile paths
-        paths = ProfilePaths(profile_name)
-
-        # Use profile data directory as default, or custom dir if provided
-        self.checkpoint_dir = Path(checkpoint_dir) if checkpoint_dir else paths.data_dir
-        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        self.active_checkpoint_file = self.checkpoint_dir / ".checkpoint_active.json"
+        self.db = get_database(profile_name)
+        self.paths = ProfilePaths(profile_name)
         self.checkpoint_data = None
-        self._lock = threading.Lock()  # Thread-safe operations
+        self._checkpoint_source = None
+        self._lock = threading.Lock()
 
     def has_checkpoint(self, input_file: str) -> bool:
         """
         Check if a checkpoint exists for the given input file
 
         Args:
-            input_file: Path to input jobs file
+            input_file: Path to input jobs file (or source identifier)
 
         Returns:
             True if checkpoint exists and matches input file
         """
-        if not self.active_checkpoint_file.exists():
-            return False
-
-        try:
-            with open(self.active_checkpoint_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data.get("input_file") == input_file
-        except (json.JSONDecodeError, IOError):
-            return False
+        result = self.db.fetchone(
+            "SELECT source FROM checkpoints WHERE source = ? AND is_active = TRUE",
+            (input_file,)
+        )
+        return result is not None
 
     def load_checkpoint(self, input_file: str) -> Optional[Dict[str, Any]]:
         """
         Load checkpoint data if it exists and matches the input file
 
         Args:
-            input_file: Path to input jobs file
+            input_file: Path to input jobs file (or source identifier)
 
         Returns:
             Checkpoint data dict or None if no valid checkpoint
         """
-        if not self.has_checkpoint(input_file):
+        result = self.db.fetchone(
+            """SELECT source, min_score, stage, processed_urls, matched_jobs_data,
+                      created_at, updated_at
+               FROM checkpoints WHERE source = ? AND is_active = TRUE""",
+            (input_file,)
+        )
+
+        if not result:
             return None
 
+        self._checkpoint_source = result[0]  # Use source as the key
+
+        # Parse stored JSON data
         try:
-            with open(self.active_checkpoint_file, "r", encoding="utf-8") as f:
-                self.checkpoint_data = json.load(f)
-                return self.checkpoint_data
-        except (json.JSONDecodeError, IOError) as e:
-            print(f"[WARNING] Failed to load checkpoint: {e}")
-            return None
+            processed_urls_data = json.loads(result[3]) if result[3] else {}
+            matched_jobs_data = json.loads(result[4]) if result[4] else {}
+        except json.JSONDecodeError:
+            processed_urls_data = {}
+            matched_jobs_data = {}
+
+        self.checkpoint_data = {
+            "input_file": result[0],
+            "timestamp": str(result[5]) if result[5] else datetime.now().isoformat(),
+            "min_score": result[1] or 0,
+            "stages": processed_urls_data.get("stages", {
+                "scoring": {"completed": False, "processed_urls": [], "processed_count": 0, "matched_count": 0},
+                "analysis": {"completed": False, "processed_urls": [], "processed_count": 0},
+                "optimization": {"completed": False, "processed_urls": [], "processed_count": 0}
+            }),
+            "output_files": processed_urls_data.get("output_files", {}),
+            "matched_jobs": matched_jobs_data
+        }
+
+        return self.checkpoint_data
 
     def create_checkpoint(
         self,
@@ -94,16 +111,18 @@ class CheckpointManager:
         Create a new checkpoint
 
         Args:
-            input_file: Path to input jobs file
+            input_file: Path to input jobs file (or source identifier)
             min_score: Minimum match score threshold
             output_file: Optional path to matched jobs output file
 
         Returns:
             New checkpoint data dict
         """
+        now = datetime.now()
+
         self.checkpoint_data = {
             "input_file": input_file,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": now.isoformat(),
             "min_score": min_score,
             "stages": {
                 "scoring": {
@@ -125,10 +144,68 @@ class CheckpointManager:
             },
             "output_files": {
                 "matched_jobs": output_file
-            }
+            },
+            "matched_jobs": {}
         }
-        self._save()
+
+        # Deactivate any existing checkpoints for this source
+        self.db.execute(
+            "UPDATE checkpoints SET is_active = FALSE WHERE source = ?",
+            (input_file,)
+        )
+
+        # Create new checkpoint
+        self.db.execute("""
+            INSERT INTO checkpoints (source, min_score, stage, processed_urls,
+                                     matched_jobs_data, is_active, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, TRUE, ?, ?)
+        """, (
+            input_file,
+            min_score,
+            "scoring",
+            json.dumps({"stages": self.checkpoint_data["stages"],
+                       "output_files": self.checkpoint_data["output_files"]}),
+            json.dumps({}),
+            now,
+            now
+        ))
+
+        # Store the source as our checkpoint key
+        self._checkpoint_source = input_file
+
         return self.checkpoint_data
+
+    def _save(self):
+        """Save checkpoint data to database"""
+        if not self.checkpoint_data or not self._checkpoint_source:
+            return
+
+        now = datetime.now()
+
+        # Determine current stage
+        current_stage = "scoring"
+        if self.checkpoint_data["stages"]["scoring"]["completed"]:
+            current_stage = "analysis"
+        if self.checkpoint_data["stages"]["analysis"]["completed"]:
+            current_stage = "optimization"
+
+        self.db.execute("""
+            UPDATE checkpoints SET
+                min_score = ?,
+                stage = ?,
+                processed_urls = ?,
+                matched_jobs_data = ?,
+                updated_at = ?
+            WHERE source = ?
+        """, (
+            self.checkpoint_data.get("min_score", 0),
+            current_stage,
+            json.dumps({"stages": self.checkpoint_data["stages"],
+                       "output_files": self.checkpoint_data.get("output_files", {})}),
+            json.dumps(self.checkpoint_data.get("matched_jobs", {})),
+            now,
+            self._checkpoint_source
+        ))
 
     def mark_job_completed(self, stage: str, job_url: str):
         """
@@ -189,8 +266,38 @@ class CheckpointManager:
             return
 
         with self._lock:
+            if "output_files" not in self.checkpoint_data:
+                self.checkpoint_data["output_files"] = {}
             self.checkpoint_data["output_files"][file_type] = file_path
             self._save()
+
+    def save_matched_job(self, job_url: str, job_data: Dict[str, Any]):
+        """
+        Save a matched job's data to checkpoint for resume
+
+        Args:
+            job_url: Job URL identifier
+            job_data: Full job data with match results
+        """
+        if not self.checkpoint_data:
+            return
+
+        with self._lock:
+            if "matched_jobs" not in self.checkpoint_data:
+                self.checkpoint_data["matched_jobs"] = {}
+            self.checkpoint_data["matched_jobs"][job_url] = job_data
+            self._save()
+
+    def get_matched_jobs(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get all matched jobs from checkpoint
+
+        Returns:
+            Dict mapping job URLs to job data
+        """
+        if not self.checkpoint_data:
+            return {}
+        return self.checkpoint_data.get("matched_jobs", {})
 
     def get_processed_urls(self, stage: str) -> List[str]:
         """
@@ -264,7 +371,7 @@ class CheckpointManager:
         if not self.checkpoint_data:
             return None
 
-        return self.checkpoint_data["output_files"].get(file_type)
+        return self.checkpoint_data.get("output_files", {}).get(file_type)
 
     def remove_urls_from_checkpoint(self, urls: List[str], stage: Optional[str] = None):
         """
@@ -303,15 +410,16 @@ class CheckpointManager:
             self._save()
 
     def clear_checkpoint(self):
-        """Remove the active checkpoint file"""
-        if self.active_checkpoint_file.exists():
-            try:
-                self.active_checkpoint_file.unlink()
-                print("Checkpoint cleared")
-            except OSError as e:
-                print(f"[WARNING] Failed to clear checkpoint: {e}")
+        """Remove the active checkpoint"""
+        if self._checkpoint_source:
+            self.db.execute(
+                "DELETE FROM checkpoints WHERE source = ?",
+                (self._checkpoint_source,)
+            )
+            print("Checkpoint cleared")
 
         self.checkpoint_data = None
+        self._checkpoint_source = None
 
     def get_summary(self) -> str:
         """
@@ -343,17 +451,6 @@ class CheckpointManager:
 
         return summary
 
-    def _save(self):
-        """Save checkpoint data to disk"""
-        if not self.checkpoint_data:
-            return
-
-        try:
-            with open(self.active_checkpoint_file, "w", encoding="utf-8") as f:
-                json.dump(self.checkpoint_data, f, indent=2, ensure_ascii=False)
-        except IOError as e:
-            print(f"[WARNING] Failed to save checkpoint: {e}")
-
 
 if __name__ == "__main__":
     # Test the checkpoint manager
@@ -364,7 +461,7 @@ if __name__ == "__main__":
     # Create a test checkpoint
     print("\nCreating checkpoint...")
     checkpoint = manager.create_checkpoint(
-        input_file="data/jobs_latest.json",
+        input_file="glassdoor",
         min_score=70,
         output_file="data/jobs_matched_test.json"
     )
@@ -384,7 +481,7 @@ if __name__ == "__main__":
     # Test loading
     print("\nLoading checkpoint...")
     manager2 = CheckpointManager()
-    loaded = manager2.load_checkpoint("data/jobs_latest.json")
+    loaded = manager2.load_checkpoint("glassdoor")
     if loaded:
         print("Checkpoint loaded successfully")
         print(f"   Processed URLs: {manager2.get_processed_urls('scoring')}")

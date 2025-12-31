@@ -11,16 +11,16 @@ Thread-safe for multi-threaded processing.
 import os
 import sys
 import json
-import sqlite3
 import threading
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Add parent directory to path for profile_manager import
+# Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from src.core.database import get_database
 from src.utils.profile_manager import ProfilePaths
 
 load_dotenv()
@@ -44,66 +44,12 @@ class FailureTracker:
         Initialize FailureTracker
 
         Args:
-            db_path: Path to SQLite database file (default: from profile)
+            db_path: Ignored (kept for compatibility, uses shared DuckDB)
             profile_name: Profile name (default: from .env ACTIVE_PROFILE)
         """
-        # Get profile paths
-        paths = ProfilePaths(profile_name)
-
-        # Use profile path as default, or custom path if provided
-        self.db_path = db_path or os.getenv("FAILURE_TRACKER_DB", str(paths.failure_tracker_db))
-        self._lock = threading.Lock()  # Thread-safe operations
-        self._init_database()
-
-    def _init_database(self):
-        """Create database and tables if they don't exist"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        # Create failed_jobs table
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS failed_jobs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                job_url TEXT NOT NULL,
-                job_title TEXT,
-                company TEXT,
-                stage TEXT NOT NULL,
-                error_type TEXT NOT NULL,
-                error_message TEXT,
-                failure_count INTEGER DEFAULT 1,
-                first_failed TEXT NOT NULL,
-                last_failed TEXT NOT NULL,
-                raw_job_data TEXT,
-                UNIQUE(job_url, stage)
-            )
-        """
-        )
-
-        # Create indexes for fast lookups
-        cursor.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_stage
-            ON failed_jobs(stage)
-        """
-        )
-
-        cursor.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_error_type
-            ON failed_jobs(error_type)
-        """
-        )
-
-        cursor.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_failure_count
-            ON failed_jobs(failure_count)
-        """
-        )
-
-        conn.commit()
-        conn.close()
+        self.db = get_database(profile_name)
+        self.paths = ProfilePaths(profile_name)
+        self._lock = threading.Lock()
 
     def record_failure(
         self,
@@ -135,71 +81,59 @@ class FailureTracker:
 
             # Serialize job data as JSON
             raw_job_data = json.dumps(job, ensure_ascii=False)
-            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+            now = datetime.now()
 
             # Check if this job/stage combo already exists
-            cursor.execute(
-                "SELECT id, failure_count FROM failed_jobs WHERE job_url = ? AND stage = ?",
+            existing = self.db.fetchone(
+                "SELECT failure_count FROM failed_jobs WHERE job_url = ? AND stage = ?",
                 (job_url, stage)
             )
-            existing = cursor.fetchone()
 
             try:
                 if existing:
-                    # Update existing failure
-                    existing_id, existing_count = existing
-                    cursor.execute(
-                        """
+                    # Update existing failure using composite key
+                    existing_count = existing[0]
+                    self.db.execute("""
                         UPDATE failed_jobs
                         SET error_type = ?,
                             error_message = ?,
                             failure_count = ?,
                             last_failed = ?,
                             raw_job_data = ?
-                        WHERE id = ?
-                    """,
-                        (
-                            error_type,
-                            error_message,
-                            existing_count + 1,
-                            now,
-                            raw_job_data,
-                            existing_id
-                        )
-                    )
+                        WHERE job_url = ? AND stage = ?
+                    """, (
+                        error_type,
+                        error_message,
+                        existing_count + 1,
+                        now,
+                        raw_job_data,
+                        job_url,
+                        stage
+                    ))
                 else:
                     # Insert new failure
-                    cursor.execute(
-                        """
+                    self.db.execute("""
                         INSERT INTO failed_jobs
                         (job_url, job_title, company, stage, error_type,
                          error_message, failure_count, first_failed, last_failed, raw_job_data)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                        (
-                            job_url,
-                            job_title,
-                            company,
-                            stage,
-                            error_type,
-                            error_message,
-                            1,
-                            now,
-                            now,
-                            raw_job_data
-                        )
-                    )
+                    """, (
+                        job_url,
+                        job_title,
+                        company,
+                        stage,
+                        error_type,
+                        error_message,
+                        1,
+                        now,
+                        now,
+                        raw_job_data
+                    ))
 
-                conn.commit()
-                conn.close()
                 return True
 
-            except sqlite3.Error as e:
+            except Exception as e:
                 print(f"[WARNING] Database error recording failure: {e}")
-                conn.close()
                 return False
 
     def mark_resolved(self, job_url: str, stage: str) -> bool:
@@ -214,19 +148,20 @@ class FailureTracker:
             True if marked successfully
         """
         with self._lock:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-
-            cursor.execute(
-                "DELETE FROM failed_jobs WHERE job_url = ? AND stage = ?",
+            # Check if exists using composite key
+            existing = self.db.fetchone(
+                "SELECT job_url FROM failed_jobs WHERE job_url = ? AND stage = ?",
                 (job_url, stage)
             )
 
-            affected = cursor.rowcount
-            conn.commit()
-            conn.close()
+            if existing:
+                self.db.execute(
+                    "DELETE FROM failed_jobs WHERE job_url = ? AND stage = ?",
+                    (job_url, stage)
+                )
+                return True
 
-            return affected > 0
+            return False
 
     def get_failed_jobs(
         self,
@@ -245,10 +180,6 @@ class FailureTracker:
         Returns:
             List of failed job records with parsed raw_job_data
         """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-
         query = "SELECT * FROM failed_jobs WHERE failure_count >= ?"
         params = [min_failures]
 
@@ -262,16 +193,17 @@ class FailureTracker:
 
         query += " ORDER BY failure_count DESC, last_failed DESC"
 
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-        conn.close()
+        df = self.db.fetchdf(query, tuple(params))
+
+        if df.empty:
+            return []
 
         # Parse raw_job_data JSON
         results = []
-        for row in rows:
-            record = dict(row)
+        for _, row in df.iterrows():
+            record = row.to_dict()
             try:
-                record["job_data"] = json.loads(record["raw_job_data"])
+                record["job_data"] = json.loads(record.get("raw_job_data", "{}"))
             except (json.JSONDecodeError, TypeError):
                 record["job_data"] = {}
             results.append(record)
@@ -312,8 +244,8 @@ class FailureTracker:
                     "error_type": record["error_type"],
                     "error_message": record["error_message"],
                     "failure_count": record["failure_count"],
-                    "first_failed": record["first_failed"],
-                    "last_failed": record["last_failed"]
+                    "first_failed": str(record["first_failed"]) if record.get("first_failed") else None,
+                    "last_failed": str(record["last_failed"]) if record.get("last_failed") else None,
                 }
 
             export_data.append(job_data)
@@ -335,59 +267,40 @@ class FailureTracker:
         Returns:
             Stats dict with breakdowns by stage and error type
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
         # Total failures
-        cursor.execute("SELECT COUNT(*) FROM failed_jobs")
-        total_failures = cursor.fetchone()[0]
+        result = self.db.fetchone("SELECT COUNT(*) FROM failed_jobs")
+        total_failures = result[0] if result else 0
 
         # By stage
-        cursor.execute(
-            """
+        stage_df = self.db.fetchdf("""
             SELECT stage, COUNT(*) as count
             FROM failed_jobs
             GROUP BY stage
-        """
-        )
-        by_stage = {row[0]: row[1] for row in cursor.fetchall()}
+        """)
+        by_stage = dict(zip(stage_df["stage"], stage_df["count"])) if not stage_df.empty else {}
 
         # By error type
-        cursor.execute(
-            """
+        error_df = self.db.fetchdf("""
             SELECT error_type, COUNT(*) as count
             FROM failed_jobs
             GROUP BY error_type
-        """
-        )
-        by_error_type = {row[0]: row[1] for row in cursor.fetchall()}
+        """)
+        by_error_type = dict(zip(error_df["error_type"], error_df["count"])) if not error_df.empty else {}
 
         # Jobs with multiple failures
-        cursor.execute(
+        result = self.db.fetchone(
             "SELECT COUNT(*) FROM failed_jobs WHERE failure_count > 1"
         )
-        multiple_failures = cursor.fetchone()[0]
+        multiple_failures = result[0] if result else 0
 
         # Most problematic jobs (highest failure count)
-        cursor.execute(
-            """
+        top_df = self.db.fetchdf("""
             SELECT job_url, job_title, stage, failure_count
             FROM failed_jobs
             ORDER BY failure_count DESC
             LIMIT 5
-        """
-        )
-        top_failures = [
-            {
-                "job_url": row[0],
-                "job_title": row[1],
-                "stage": row[2],
-                "failure_count": row[3]
-            }
-            for row in cursor.fetchall()
-        ]
-
-        conn.close()
+        """)
+        top_failures = top_df.to_dict("records") if not top_df.empty else []
 
         return {
             "total_failures": total_failures,
@@ -407,32 +320,17 @@ class FailureTracker:
         Returns:
             List of dicts with job_title, error_type, and error_message
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        # Get diverse sample of errors (one per error type)
-        cursor.execute(
-            """
+        df = self.db.fetchdf(f"""
             SELECT job_title, error_type, error_message, stage
             FROM failed_jobs
             GROUP BY error_type
-            LIMIT ?
-        """,
-            (limit,)
-        )
+            LIMIT {limit}
+        """)
 
-        samples = [
-            {
-                "job_title": row[0],
-                "error_type": row[1],
-                "error_message": row[2],
-                "stage": row[3]
-            }
-            for row in cursor.fetchall()
-        ]
+        if df.empty:
+            return []
 
-        conn.close()
-        return samples
+        return df.to_dict("records")
 
     def clear_stage_failures(self, stage: str) -> int:
         """
@@ -445,25 +343,21 @@ class FailureTracker:
             Number of failures cleared
         """
         with self._lock:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+            # Get count first
+            result = self.db.fetchone(
+                "SELECT COUNT(*) FROM failed_jobs WHERE stage = ?",
+                (stage,)
+            )
+            count = result[0] if result else 0
 
-            cursor.execute("DELETE FROM failed_jobs WHERE stage = ?", (stage,))
-            removed = cursor.rowcount
+            self.db.execute("DELETE FROM failed_jobs WHERE stage = ?", (stage,))
 
-            conn.commit()
-            conn.close()
-
-            return removed
+            return count
 
     def reset(self):
         """Clear all failures (use with caution!)"""
         with self._lock:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM failed_jobs")
-            conn.commit()
-            conn.close()
+            self.db.execute("DELETE FROM failed_jobs")
 
 
 if __name__ == "__main__":
@@ -471,7 +365,7 @@ if __name__ == "__main__":
     print("Testing FailureTracker...")
 
     tracker = FailureTracker()
-    print(f"Database: {tracker.db_path}")
+    print(f"Database: {tracker.db.db_path}")
 
     # Test recording a failure
     sample_job = {
@@ -513,12 +407,6 @@ if __name__ == "__main__":
     print(f"  By stage: {stats['by_stage']}")
     print(f"  By error type: {stats['by_error_type']}")
     print(f"  Multiple failures: {stats['multiple_failures']}")
-
-    # Test export
-    print("\nExporting failed jobs...")
-    export_file = "data/test_failed_jobs.json"
-    count = tracker.export_failed_jobs("scoring", export_file)
-    print(f"Exported {count} jobs to {export_file}")
 
     # Test mark resolved
     print("\nMarking job as resolved...")

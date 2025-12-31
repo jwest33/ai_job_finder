@@ -476,15 +476,32 @@ class LlamaClient:
                             except (json.JSONDecodeError, ValueError):
                                 pass
 
-                        # All parsing strategies failed
+                        # All parsing strategies failed - log details for first few failures
+                        if index < 3:  # Only log first 3 failures to avoid spam
+                            print(f"\n[ERROR] JSON parsing failed for request {index}")
+                            print(f"  Response length: {len(content)} chars")
+                            print(f"  First 200 chars: {content[:200]}")
+                            print(f"  Last 200 chars: {content[-200:]}")
+                            print(f"  Contains '{{': {'{' in content}")
+                            print(f"  Contains '}}': {'}' in content}")
+                            print(f"  Contains '```': {'```' in content}")
+
                         return (index, None)
                     else:
-                        # HTTP error
+                        # HTTP error - log details
+                        error_text = await response.text()
+                        if index < 3:  # Only log first 3 failures
+                            print(f"\n[ERROR] HTTP error for request {index}: {response.status}")
+                            print(f"  Response: {error_text[:500]}")
                         return (index, None)
 
             except asyncio.TimeoutError:
+                if index < 3:  # Only log first 3 timeouts
+                    print(f"\n[ERROR] Request {index} timed out after {self.request_timeout}s")
                 return (index, None)
             except Exception as e:
+                if index < 3:  # Only log first 3 exceptions
+                    print(f"\n[ERROR] Request {index} failed with exception: {type(e).__name__}: {str(e)}")
                 return (index, None)
 
         # Create aiohttp session with unlimited concurrent connections

@@ -1,5 +1,5 @@
 """
-JobTracker - SQLite database for tracking processed jobs
+JobTracker - DuckDB database for tracking processed jobs
 
 Prevents duplicate job processing across multiple reports by tracking
 job URLs and their match scores.
@@ -7,15 +7,15 @@ job URLs and their match scores.
 
 import os
 import sys
-import sqlite3
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Add parent directory to path for profile_manager import
+# Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from src.core.database import get_database
 from src.utils.profile_manager import ProfilePaths
 
 load_dotenv()
@@ -29,57 +29,11 @@ class JobTracker:
         Initialize JobTracker
 
         Args:
-            db_path: Path to SQLite database file (default: from profile)
+            db_path: Ignored (kept for compatibility, uses shared DuckDB)
             profile_name: Profile name (default: from .env ACTIVE_PROFILE)
         """
-        # Get profile paths
-        paths = ProfilePaths(profile_name)
-
-        # Use profile path as default, or custom path if provided
-        self.db_path = db_path or os.getenv("JOB_TRACKER_DB", str(paths.job_tracker_db))
-        self._init_database()
-
-    def _init_database(self):
-        """Create database and tables if they don't exist"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        # Create jobs table
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS processed_jobs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                job_url TEXT UNIQUE NOT NULL,
-                job_title TEXT,
-                company TEXT,
-                location TEXT,
-                match_score INTEGER,
-                report_date TEXT NOT NULL,
-                first_seen TEXT NOT NULL,
-                last_seen TEXT NOT NULL,
-                times_seen INTEGER DEFAULT 1
-            )
-        """
-        )
-
-        # Create index on job_url for fast lookups
-        cursor.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_job_url
-            ON processed_jobs(job_url)
-        """
-        )
-
-        # Create index on match_score for filtering
-        cursor.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_match_score
-            ON processed_jobs(match_score)
-        """
-        )
-
-        conn.commit()
-        conn.close()
+        self.db = get_database(profile_name)
+        self.paths = ProfilePaths(profile_name)
 
     def is_processed(self, job_url: str) -> bool:
         """
@@ -91,16 +45,11 @@ class JobTracker:
         Returns:
             True if job has been processed, False otherwise
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        cursor.execute(
-            "SELECT COUNT(*) FROM processed_jobs WHERE job_url = ?", (job_url,)
+        result = self.db.fetchone(
+            "SELECT COUNT(*) FROM processed_jobs WHERE job_url = ?",
+            (job_url,)
         )
-        count = cursor.fetchone()[0]
-
-        conn.close()
-        return count > 0
+        return result[0] > 0 if result else False
 
     def add_job(
         self,
@@ -126,39 +75,30 @@ class JobTracker:
             True if job was added, False if it already exists
         """
         if self.is_processed(job_url):
-            # Update existing entry
             return self._update_job(job_url, match_score)
 
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        report_date = report_date or datetime.now().strftime("%Y-%m-%d")
+        now = datetime.now()
+        report_date = report_date or now.strftime("%Y-%m-%d")
 
         try:
-            cursor.execute(
-                """
+            self.db.execute("""
                 INSERT INTO processed_jobs
                 (job_url, job_title, company, location, match_score,
-                 report_date, first_seen, last_seen)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    job_url,
-                    job_title,
-                    company,
-                    location,
-                    match_score,
-                    report_date,
-                    now,
-                    now,
-                ),
-            )
-            conn.commit()
-            conn.close()
+                 report_date, first_seen, last_seen, times_seen)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                job_url,
+                job_title,
+                company,
+                location,
+                match_score,
+                report_date,
+                now,
+                now,
+                1,
+            ))
             return True
-        except sqlite3.IntegrityError:
-            conn.close()
+        except Exception:
             return False
 
     def _update_job(self, job_url: str, match_score: int) -> bool:
@@ -172,24 +112,16 @@ class JobTracker:
         Returns:
             True if updated successfully
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        now = datetime.now()
 
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        cursor.execute(
-            """
+        self.db.execute("""
             UPDATE processed_jobs
             SET last_seen = ?,
                 times_seen = times_seen + 1,
                 match_score = ?
             WHERE job_url = ?
-        """,
-            (now, match_score, job_url),
-        )
+        """, (now, match_score, job_url))
 
-        conn.commit()
-        conn.close()
         return True
 
     def get_job(self, job_url: str) -> Optional[Dict[str, Any]]:
@@ -202,18 +134,15 @@ class JobTracker:
         Returns:
             Job info dict or None if not found
         """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+        df = self.db.fetchdf(
+            "SELECT * FROM processed_jobs WHERE job_url = ?",
+            (job_url,)
+        )
 
-        cursor.execute("SELECT * FROM processed_jobs WHERE job_url = ?", (job_url,))
-        row = cursor.fetchone()
+        if df.empty:
+            return None
 
-        conn.close()
-
-        if row:
-            return dict(row)
-        return None
+        return df.iloc[0].to_dict()
 
     def get_all_jobs(
         self, min_score: Optional[int] = None, limit: Optional[int] = None
@@ -228,10 +157,6 @@ class JobTracker:
         Returns:
             List of job info dicts
         """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-
         query = "SELECT * FROM processed_jobs"
         params = []
 
@@ -242,15 +167,14 @@ class JobTracker:
         query += " ORDER BY match_score DESC, last_seen DESC"
 
         if limit:
-            query += " LIMIT ?"
-            params.append(limit)
+            query += f" LIMIT {limit}"
 
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
+        df = self.db.fetchdf(query, tuple(params) if params else None)
 
-        conn.close()
+        if df.empty:
+            return []
 
-        return [dict(row) for row in rows]
+        return df.to_dict("records")
 
     def get_stats(self) -> Dict[str, Any]:
         """
@@ -259,36 +183,37 @@ class JobTracker:
         Returns:
             Stats dict with counts and averages
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
         # Total jobs
-        cursor.execute("SELECT COUNT(*) FROM processed_jobs")
-        total_jobs = cursor.fetchone()[0]
+        result = self.db.fetchone("SELECT COUNT(*) FROM processed_jobs")
+        total_jobs = result[0] if result else 0
 
         # Average match score
-        cursor.execute("SELECT AVG(match_score) FROM processed_jobs")
-        avg_score = cursor.fetchone()[0] or 0
+        result = self.db.fetchone("SELECT AVG(match_score) FROM processed_jobs")
+        avg_score = result[0] if result and result[0] else 0
 
         # High matches (>= 80)
-        cursor.execute("SELECT COUNT(*) FROM processed_jobs WHERE match_score >= 80")
-        high_matches = cursor.fetchone()[0]
-
-        # Medium matches (70-79)
-        cursor.execute(
-            "SELECT COUNT(*) FROM processed_jobs WHERE match_score >= 70 AND match_score < 80"
+        result = self.db.fetchone(
+            "SELECT COUNT(*) FROM processed_jobs WHERE match_score >= 80"
         )
-        medium_matches = cursor.fetchone()[0]
+        high_matches = result[0] if result else 0
 
-        # Low matches (< 70)
-        cursor.execute("SELECT COUNT(*) FROM processed_jobs WHERE match_score < 70")
-        low_matches = cursor.fetchone()[0]
+        # Medium matches (60-79)
+        result = self.db.fetchone(
+            "SELECT COUNT(*) FROM processed_jobs WHERE match_score >= 60 AND match_score < 80"
+        )
+        medium_matches = result[0] if result else 0
+
+        # Low matches (< 60)
+        result = self.db.fetchone(
+            "SELECT COUNT(*) FROM processed_jobs WHERE match_score < 60"
+        )
+        low_matches = result[0] if result else 0
 
         # Reposted jobs (seen more than once)
-        cursor.execute("SELECT COUNT(*) FROM processed_jobs WHERE times_seen > 1")
-        reposted_jobs = cursor.fetchone()[0]
-
-        conn.close()
+        result = self.db.fetchone(
+            "SELECT COUNT(*) FROM processed_jobs WHERE times_seen > 1"
+        )
+        reposted_jobs = result[0] if result else 0
 
         return {
             "total_jobs": total_jobs,
@@ -309,22 +234,19 @@ class JobTracker:
         Returns:
             Number of jobs removed
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        # Get count before delete
+        result = self.db.fetchone(
+            "SELECT COUNT(*) FROM processed_jobs WHERE last_seen < CURRENT_TIMESTAMP - INTERVAL ? DAY",
+            (days,)
+        )
+        count = result[0] if result else 0
 
-        cursor.execute(
-            """
-            DELETE FROM processed_jobs
-            WHERE julianday('now') - julianday(last_seen) > ?
-        """,
-            (days,),
+        self.db.execute(
+            "DELETE FROM processed_jobs WHERE last_seen < CURRENT_TIMESTAMP - INTERVAL ? DAY",
+            (days,)
         )
 
-        removed = cursor.rowcount
-        conn.commit()
-        conn.close()
-
-        return removed
+        return count
 
     def get_jobs_by_date_range(
         self,
@@ -343,33 +265,29 @@ class JobTracker:
         Returns:
             List of job info dicts matching criteria
         """
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-
         query = """
             SELECT * FROM processed_jobs
             WHERE report_date >= ? AND report_date <= ?
         """
         params = [from_date, to_date]
 
-        # Filter by source if specified
+        # Filter by source if specified (check URL patterns) - parameterized to prevent SQL injection
         if sources:
-            # Build source filter based on URL patterns
-            source_conditions = []
+            source_placeholders = []
             for source in sources:
-                source_conditions.append(f"job_url LIKE '%{source.lower()}%'")
-            if source_conditions:
-                query += f" AND ({' OR '.join(source_conditions)})"
+                source_placeholders.append("job_url LIKE ?")
+                params.append(f'%{source.lower()}%')
+            if source_placeholders:
+                query += f" AND ({' OR '.join(source_placeholders)})"
 
         query += " ORDER BY report_date DESC, match_score DESC"
 
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
+        df = self.db.fetchdf(query, tuple(params))
 
-        conn.close()
+        if df.empty:
+            return []
 
-        return [dict(row) for row in rows]
+        return df.to_dict("records")
 
     def delete_jobs_by_date_range(
         self,
@@ -388,38 +306,47 @@ class JobTracker:
         Returns:
             Number of jobs deleted
         """
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-
-        query = """
-            DELETE FROM processed_jobs
+        # Get count first
+        count_query = """
+            SELECT COUNT(*) FROM processed_jobs
             WHERE report_date >= ? AND report_date <= ?
         """
         params = [from_date, to_date]
 
-        # Filter by source if specified
+        # Parameterized source filtering to prevent SQL injection
         if sources:
-            # Build source filter based on URL patterns
-            source_conditions = []
+            source_placeholders = []
             for source in sources:
-                source_conditions.append(f"job_url LIKE '%{source.lower()}%'")
-            if source_conditions:
-                query += f" AND ({' OR '.join(source_conditions)})"
+                source_placeholders.append("job_url LIKE ?")
+                params.append(f'%{source.lower()}%')
+            if source_placeholders:
+                count_query += f" AND ({' OR '.join(source_placeholders)})"
 
-        cursor.execute(query, params)
-        removed = cursor.rowcount
-        conn.commit()
-        conn.close()
+        result = self.db.fetchone(count_query, tuple(params))
+        count = result[0] if result else 0
 
-        return removed
+        # Now delete - rebuild params for delete query
+        delete_params = [from_date, to_date]
+        delete_query = """
+            DELETE FROM processed_jobs
+            WHERE report_date >= ? AND report_date <= ?
+        """
+
+        if sources:
+            source_placeholders = []
+            for source in sources:
+                source_placeholders.append("job_url LIKE ?")
+                delete_params.append(f'%{source.lower()}%')
+            if source_placeholders:
+                delete_query += f" AND ({' OR '.join(source_placeholders)})"
+
+        self.db.execute(delete_query, tuple(delete_params))
+
+        return count
 
     def reset(self):
         """Clear all jobs from tracker (use with caution!)"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM processed_jobs")
-        conn.commit()
-        conn.close()
+        self.db.execute("DELETE FROM processed_jobs")
 
 
 if __name__ == "__main__":
@@ -427,16 +354,16 @@ if __name__ == "__main__":
     print("Testing JobTracker...")
     tracker = JobTracker()
 
-    print(f"Database: {tracker.db_path}")
+    print(f"Database: {tracker.db.db_path}")
 
     # Get stats
     stats = tracker.get_stats()
     print("\nCurrent Statistics:")
     print(f"  Total jobs: {stats['total_jobs']}")
     print(f"  Average score: {stats['avg_score']}")
-    print(f"  High matches (≥80): {stats['high_matches']}")
-    print(f"  Medium matches (70-79): {stats['medium_matches']}")
-    print(f"  Low matches (<70): {stats['low_matches']}")
+    print(f"  High matches (>=80): {stats['high_matches']}")
+    print(f"  Medium matches (60-79): {stats['medium_matches']}")
+    print(f"  Low matches (<60): {stats['low_matches']}")
     print(f"  Reposted jobs: {stats['reposted_jobs']}")
 
     # Test adding a job

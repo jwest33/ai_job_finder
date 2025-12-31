@@ -166,7 +166,7 @@ class MatchScorer:
                 response = self.client.generate_json(
                     prompt,
                     temperature=0.2,  # Lower temperature for more consistent JSON output
-                    max_tokens=1024,
+                    max_tokens=2048,
                     json_schema=json_schema
                 )
             except requests.exceptions.Timeout:
@@ -719,7 +719,7 @@ Example valid response:
                 response = self.client.generate_json(
                     prompt,
                     temperature=0.2,
-                    max_tokens=1024,
+                    max_tokens=2048,
                     json_schema=json_schema
                 )
                 return response
@@ -809,7 +809,7 @@ Example valid response:
             failure_stage="scoring",
             llama_client=self.client,  # Pass LlamaClient for async batch mode
             temperature=0.2,  # AI generation temperature
-            max_tokens=1024,  # Max tokens for AI generation
+            max_tokens=2048,  # Max tokens for AI generation
             json_schema=json_schema,  # JSON schema for validation
         )
 
@@ -843,7 +843,7 @@ Example valid response:
         return self.filtered_jobs
 
     def filter_by_score(
-        self, jobs: list, min_score: int = 70
+        self, jobs: list, min_score: int = 60
     ) -> tuple[list, list]:
         """
         Filter jobs by minimum match score

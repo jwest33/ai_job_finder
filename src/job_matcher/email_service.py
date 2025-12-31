@@ -379,7 +379,7 @@ class EmailService:
         avg_score = sum(job.get("match_score", 0) for job in jobs) / total_jobs
         excellent = sum(1 for job in jobs if job.get("match_score", 0) >= 90)
         good = sum(1 for job in jobs if 80 <= job.get("match_score", 0) < 90)
-        fair = sum(1 for job in jobs if 70 <= job.get("match_score", 0) < 80)
+        fair = sum(1 for job in jobs if 60 <= job.get("match_score", 0) < 80)
 
         # Sort jobs by score
         sorted_jobs = sorted(

@@ -146,7 +146,7 @@ class ReportGenerator:
             1 for job in jobs if 80 <= job.get("match_score", 0) < 90
         )
         fair_matches = sum(
-            1 for job in jobs if 70 <= job.get("match_score", 0) < 80
+            1 for job in jobs if 60 <= job.get("match_score", 0) < 80
         )
 
         return f"""

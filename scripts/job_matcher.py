@@ -39,6 +39,8 @@ from src.job_matcher import (
     FailureTracker,
     ErrorType,
 )
+from src.core.storage import JobStorage
+from src.core.database import get_database
 
 load_dotenv()
 
@@ -65,6 +67,10 @@ class JobMatcherPipeline:
         # Initialize components
         # Get active profile for profile-aware components
         self.profile_name = os.getenv("ACTIVE_PROFILE", "default")
+
+        # Initialize storage and database
+        self.storage = JobStorage(profile_name=self.profile_name)
+        self.db = get_database(self.profile_name)
 
         self.tracker = JobTracker()
         self.client = LlamaClient()
@@ -122,15 +128,32 @@ class JobMatcherPipeline:
 
     def load_jobs(self, input_file: str) -> List[Dict[str, Any]]:
         """
-        Load jobs from JSON file
+        Load jobs from DuckDB or JSON file
 
         Args:
-            input_file: Path to JSON file with jobs
+            input_file: Path to JSON file or source identifier (e.g., "glassdoor")
 
         Returns:
             List of job dicts
         """
-        print(f"\nLoading jobs from: {input_file}")
+        # Check if input_file is a source identifier (not a file path)
+        source_identifiers = ["indeed", "glassdoor", "linkedin", "ziprecruiter"]
+        if input_file.lower() in source_identifiers:
+            return self.load_jobs_from_db(input_file.lower())
+
+        # Check if it looks like a source pattern in the filename
+        for source in source_identifiers:
+            if source in input_file.lower():
+                print(f"\nLoading jobs from database (source: {source})...")
+                jobs = self.load_jobs_from_db(source)
+                if jobs:
+                    print(f"Loaded {len(jobs)} jobs from database")
+                    return jobs
+                # Fall through to file loading if DB is empty
+                break
+
+        # Fall back to file loading for backward compatibility
+        print(f"\nLoading jobs from file: {input_file}")
 
         if not Path(input_file).exists():
             raise FileNotFoundError(f"Input file not found: {input_file}")
@@ -138,7 +161,37 @@ class JobMatcherPipeline:
         with open(input_file, "r", encoding="utf-8") as f:
             jobs = json.load(f)
 
-        print(f"Loaded {len(jobs)} jobs")
+        print(f"Loaded {len(jobs)} jobs from file")
+        return jobs
+
+    def load_jobs_from_db(self, source: str) -> List[Dict[str, Any]]:
+        """
+        Load unprocessed jobs from DuckDB
+
+        Args:
+            source: Job source identifier (e.g., "glassdoor", "indeed")
+
+        Returns:
+            List of job dicts
+        """
+        df = self.storage.load_unprocessed_jobs(source)
+        if df is None or df.empty:
+            return []
+
+        # Convert DataFrame to list of dicts
+        jobs = df.to_dict("records")
+
+        # Convert array columns back to lists (DuckDB returns them as numpy arrays)
+        list_fields = ['skills', 'requirements', 'benefits', 'work_arrangements']
+        for job in jobs:
+            for field in list_fields:
+                if field in job and job[field] is not None:
+                    # Convert numpy array or other iterable to list
+                    try:
+                        job[field] = list(job[field]) if job[field] is not None else []
+                    except (TypeError, ValueError):
+                        job[field] = []
+
         return jobs
 
     def filter_unprocessed_jobs(self, jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -327,15 +380,49 @@ class JobMatcherPipeline:
         self, jobs: List[Dict[str, Any]], output_file: Optional[str] = None
     ) -> str:
         """
-        Save matched jobs to JSON file
+        Save matched jobs to DuckDB and optionally to JSON file
 
         Args:
-            jobs: List of job dicts
-            output_file: Optional output filename
+            jobs: List of job dicts with match results
+            output_file: Optional output filename for JSON backup
 
         Returns:
-            Path to saved file
+            Path to saved JSON file (for report generation)
         """
+        # Update match results in DuckDB
+        print("\nUpdating match results in database...")
+        updated_count = 0
+        for job in jobs:
+            job_url = job.get("job_url")
+            if not job_url:
+                continue
+
+            match_score = job.get("match_score")
+            match_explanation = job.get("match_explanation", "")
+            is_relevant = job.get("is_relevant", True)
+            gap_analysis = job.get("gap_analysis")
+            resume_suggestions = job.get("resume_suggestions")
+
+            # Handle gap_analysis and resume_suggestions which might be dicts
+            if isinstance(gap_analysis, dict):
+                gap_analysis = json.dumps(gap_analysis)
+            if isinstance(resume_suggestions, dict):
+                resume_suggestions = json.dumps(resume_suggestions)
+
+            if match_score is not None:
+                self.storage.update_match_results(
+                    job_url=job_url,
+                    match_score=match_score,
+                    match_explanation=match_explanation,
+                    is_relevant=is_relevant,
+                    gap_analysis=gap_analysis,
+                    resume_suggestions=resume_suggestions
+                )
+                updated_count += 1
+
+        print(f"Updated {updated_count} jobs in database")
+
+        # Also save to JSON file for report generation and backward compatibility
         if not output_file:
             from src.utils.profile_manager import ProfilePaths
             paths = ProfilePaths()
@@ -348,7 +435,7 @@ class JobMatcherPipeline:
         with open(output_file, "w", encoding="utf-8") as f:
             json.dump(jobs, f, indent=2, ensure_ascii=False)
 
-        print(f"\n[INFO] Matched jobs saved to: {output_file}")
+        print(f"[INFO] Matched jobs also saved to: {output_file}")
 
         # Update checkpoint with output file path
         if self.checkpoint_manager:
@@ -789,7 +876,7 @@ class JobMatcherPipeline:
         resume_from_checkpoint: bool = False,
     ) -> List[tuple]:
         """
-        Process all source files in data/ directory
+        Process all sources from DuckDB or data/ directory
 
         Args:
             min_score: Minimum match score threshold
@@ -799,14 +886,21 @@ class JobMatcherPipeline:
         Returns:
             List of tuples: [(source, report_path, matched_jobs), ...]
         """
-        data_dir = Path("data")
-
-        # Find all source files (jobs_{source}_latest.json)
+        # First check DuckDB for available sources
         source_files = []
         for source in ["indeed", "glassdoor", "linkedin", "ziprecruiter"]:
-            source_file = data_dir / f"jobs_{source}_latest.json"
-            if source_file.exists():
-                source_files.append((source, str(source_file)))
+            job_count = self.storage.get_job_count(source)
+            if job_count > 0:
+                # Use source name as identifier (will be loaded from DB)
+                source_files.append((source, source))
+
+        # Also check for legacy JSON files if no DB sources found
+        if not source_files:
+            data_dir = Path("data")
+            for source in ["indeed", "glassdoor", "linkedin", "ziprecruiter"]:
+                source_file = data_dir / f"jobs_{source}_latest.json"
+                if source_file.exists():
+                    source_files.append((source, str(source_file)))
 
         if not source_files:
             print("\n[WARNING] No source files found in data/ directory")
@@ -838,17 +932,22 @@ class JobMatcherPipeline:
                 )
 
                 if report_path:
-                    # Load the matched jobs to include in results
-                    matched_file = f"data/jobs_{source}_matched_{datetime.now().strftime('%Y%m%d')}_*.json"
-                    import glob
-                    matched_files = glob.glob(matched_file)
+                    # Load matched jobs from DuckDB
+                    df = self.storage.load_matched_jobs(source, min_score or self.min_score)
+                    if df is not None and not df.empty:
+                        matched_jobs = df.to_dict("records")
+                    else:
+                        # Fallback to JSON file if DB is empty
+                        matched_file = f"data/jobs_{source}_matched_{datetime.now().strftime('%Y%m%d')}_*.json"
+                        import glob
+                        matched_files = glob.glob(matched_file)
 
-                    matched_jobs = []
-                    if matched_files:
-                        # Get most recent matched file
-                        latest_matched = max(matched_files, key=lambda f: Path(f).stat().st_mtime)
-                        with open(latest_matched, 'r', encoding='utf-8') as f:
-                            matched_jobs = json.load(f)
+                        matched_jobs = []
+                        if matched_files:
+                            # Get most recent matched file
+                            latest_matched = max(matched_files, key=lambda f: Path(f).stat().st_mtime)
+                            with open(latest_matched, 'r', encoding='utf-8') as f:
+                                matched_jobs = json.load(f)
 
                     results.append((source, report_path, matched_jobs))
                     print(f"\n[SUCCESS] {source.upper()} processing complete")

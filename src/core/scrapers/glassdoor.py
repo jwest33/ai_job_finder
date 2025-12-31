@@ -243,8 +243,15 @@ class GlassdoorScraper(BaseScraper):
                 if self.csrf_token:
                     self.api_headers["gd-csrf-token"] = self.csrf_token
                 else:
-                    print("[ERROR] Failed to get CSRF token")
-                    return jobs
+                    # Try fallback token
+                    print("[WARNING] Could not extract CSRF token, trying fallback token...")
+                    if GLASSDOOR_FALLBACK_TOKEN:
+                        self.csrf_token = GLASSDOOR_FALLBACK_TOKEN
+                        self.api_headers["gd-csrf-token"] = self.csrf_token
+                        print(f"[INFO] Using fallback CSRF token: {self.csrf_token[:20]}...")
+                    else:
+                        print("[ERROR] Failed to get CSRF token and no fallback available")
+                        return jobs
 
             # Resolve location to Glassdoor location ID and type
             location_id, location_type = await self._get_location_id(location, is_remote)
@@ -337,39 +344,81 @@ class GlassdoorScraper(BaseScraper):
 
             if response.status != 200:
                 print(f"[WARNING] Page returned status {response.status}")
-                return None
+                # Continue anyway - we might still get cookies
 
             # Wait for JavaScript execution
             await page.wait_for_timeout(3000)
 
+            # Method 1: Try to extract token from cookies first (most reliable)
+            print("→ Checking cookies for CSRF token...")
+            cookies = await self.context.cookies()
+            for cookie in cookies:
+                if cookie.get("name") == "gdId":
+                    token = cookie.get("value")
+                    if token:
+                        print(f"[SUCCESS] Retrieved CSRF token from gdId cookie: {token[:20]}...")
+                        return token
+
             # Extract token from HTML
             html_content = await page.content()
 
-            # Try multiple regex patterns (handles escaped quotes)
+            # Method 2: Try multiple regex patterns (handles escaped quotes and various formats)
             patterns = [
+                # Modern patterns - check for gdToken, csrfToken, or token in various contexts
+                (r'"gdToken"\s*:\s*"([^"]+)"', "gdToken field"),
+                (r'"csrfToken"\s*:\s*"([^"]+)"', "csrfToken field"),
+                (r'"gd-csrf-token"\s*:\s*"([^"]+)"', "gd-csrf-token field"),
+                (r'data-csrf-token="([^"]+)"', "data-csrf-token attribute"),
+                (r'csrf[_-]?token["\s:]+["\']([^"\']+)["\']', "csrf token generic"),
+                # Legacy patterns
                 (r'\\"?token\\"?\s*:\s*\\"([^\\"]+)\\"', "JSON token field (escaped quotes)"),
                 (r'"token"\s*:\s*"([^"]+)"', "JSON token field (normal quotes)"),
                 (r'window\.__INITIAL_STATE__\s*=\s*.*?\\"token\\":\s*\\"([^\\"]+)\\"', "Initial state (escaped)"),
                 (r'window\.__INITIAL_STATE__\s*=\s*.*?"token":\s*"([^"]+)"', "Initial state (normal)"),
+                # Apollo client state patterns
+                (r'"apolloState".*?"token"\s*:\s*"([^"]+)"', "Apollo state token"),
+                (r'__NEXT_DATA__.*?"token"\s*:\s*"([^"]+)"', "Next.js data token"),
             ]
 
             for pattern, description in patterns:
                 matches = re.findall(pattern, html_content, re.DOTALL)
                 if matches:
                     token = matches[0]
-                    print(f"[SUCCESS] Retrieved CSRF token using {description}: {token[:20]}...")
-                    return token
+                    # Validate token format (should be reasonably long and not contain HTML)
+                    if len(token) > 20 and '<' not in token:
+                        print(f"[SUCCESS] Retrieved CSRF token using {description}: {token[:20]}...")
+                        return token
 
-            # Fallback: JavaScript extraction
+            # Method 3: JavaScript extraction with multiple approaches
             print("→ Trying JavaScript extraction...")
             js_token = await page.evaluate("""() => {
+                // Try various global state objects
                 if (window.__INITIAL_STATE__ && window.__INITIAL_STATE__.token) {
                     return window.__INITIAL_STATE__.token;
                 }
+                if (window.__NEXT_DATA__ && window.__NEXT_DATA__.props) {
+                    const props = window.__NEXT_DATA__.props;
+                    if (props.pageProps && props.pageProps.token) return props.pageProps.token;
+                    if (props.token) return props.token;
+                }
+                if (window.__APOLLO_STATE__) {
+                    const state = JSON.stringify(window.__APOLLO_STATE__);
+                    const match = state.match(/"token":"([^"]+)"/);
+                    if (match) return match[1];
+                }
+                // Check meta tags
+                const metaToken = document.querySelector('meta[name="csrf-token"]');
+                if (metaToken) return metaToken.getAttribute('content');
+
+                // Search script tags
                 const scripts = document.querySelectorAll('script');
                 for (let script of scripts) {
-                    const match = script.textContent.match(/"token"\\s*:\\s*"([^"]+)"/);
+                    const text = script.textContent || '';
+                    // Try multiple patterns
+                    let match = text.match(/"gdToken"\s*:\s*"([^"]+)"/);
                     if (match) return match[1];
+                    match = text.match(/"token"\s*:\s*"([^"]+)"/);
+                    if (match && match[1].length > 20) return match[1];
                 }
                 return null;
             }""")
@@ -378,7 +427,7 @@ class GlassdoorScraper(BaseScraper):
                 print(f"[SUCCESS] Retrieved CSRF token via JavaScript: {js_token[:20]}...")
                 return js_token
 
-            print("[WARNING] Could not find CSRF token")
+            print("[WARNING] Could not find CSRF token from page")
             return None
 
         except Exception as e:
