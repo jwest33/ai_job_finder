@@ -87,9 +87,10 @@ class ScraperSearchTool(BaseTool):
                 details={"suggestion": "Ensure src.core package is properly installed"},
             )
 
-        # Initialize storage
-        from src.utils.profile_manager import ProfilePaths
-        storage = JobStorage(output_dir=str(ProfilePaths().data_dir))
+        # Initialize storage with current profile
+        from src.utils.profile_manager import ProfilePaths, get_active_profile
+        current_profile = get_active_profile()
+        storage = JobStorage(output_dir=str(ProfilePaths().data_dir), profile_name=current_profile)
 
         all_jobs = []
         search_count = 0

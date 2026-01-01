@@ -263,7 +263,8 @@ class SystemFullPipelineTool(BaseTool):
         # PHASE 4: Send ONE unified email with all sources combined
         # ====================================================================================
         email_sent = False
-        profile_name = os.getenv("ACTIVE_PROFILE", "default")
+        from src.utils.profile_manager import get_active_profile
+        profile_name = get_active_profile()
         email_service = EmailService(profile_name=profile_name)
         email_enabled = os.getenv("EMAIL_ENABLED", "false").lower() == "true"
 

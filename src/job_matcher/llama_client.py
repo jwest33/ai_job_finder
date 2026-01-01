@@ -356,18 +356,20 @@ class LlamaClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         json_schema: Optional[Dict[str, Any]] = None,
+        max_concurrent: Optional[int] = None,
     ) -> List[Optional[Dict[str, Any]]]:
         """
-        Generate JSON responses for multiple prompts simultaneously using async HTTP
+        Generate JSON responses for multiple prompts using async HTTP with rate limiting
 
-        This method submits ALL prompts to llama-server simultaneously, allowing
-        the server to process them in parallel and maintain constant GPU load.
+        This method processes prompts concurrently but limits the number of simultaneous
+        requests to avoid overwhelming the llama-server.
 
         Args:
             prompts: List of prompts to send to the model
             temperature: Override default temperature
             max_tokens: Override default max_tokens
             json_schema: Optional JSON schema to enforce output format
+            max_concurrent: Maximum concurrent requests (default: from MATCH_THREADS env, or 4)
 
         Returns:
             List of parsed JSON dicts (or None for failed requests), in same order as prompts
@@ -377,6 +379,12 @@ class LlamaClient:
                 "Async batch mode not available: aiohttp not installed. "
                 "Install with: pip install aiohttp>=3.9.0"
             )
+
+        # Get max concurrent requests from env or parameter
+        if max_concurrent is None:
+            max_concurrent = int(os.getenv("MATCH_THREADS", "4"))
+
+        print(f"[INFO] Processing {len(prompts)} prompts in batches of {max_concurrent}")
 
         async def single_request(session: aiohttp.ClientSession, prompt: str, index: int) -> tuple[int, Optional[Dict[str, Any]]]:
             """
@@ -504,26 +512,38 @@ class LlamaClient:
                     print(f"\n[ERROR] Request {index} failed with exception: {type(e).__name__}: {str(e)}")
                 return (index, None)
 
-        # Create aiohttp session with unlimited concurrent connections
-        # This ensures ALL requests hit llama-server simultaneously
+        # Create aiohttp session with connection limit matching our batch size
         connector = aiohttp.TCPConnector(
-            limit=0,  # 0 = unlimited total connections
-            limit_per_host=0,  # 0 = unlimited connections per host (critical for batch mode)
-            force_close=False,  # Reuse connections for efficiency
+            limit=max_concurrent,
+            limit_per_host=max_concurrent,
+            force_close=False,
             enable_cleanup_closed=True
         )
 
+        all_results = []
+
         async with aiohttp.ClientSession(connector=connector) as session:
-            tasks = [
-                single_request(session, prompt, idx)
-                for idx, prompt in enumerate(prompts)
-            ]
-            # Gather all results simultaneously - all HTTP requests fire at once
-            indexed_results = await asyncio.gather(*tasks)
+            # Process prompts in explicit batches of max_concurrent
+            # This ensures we NEVER have more than max_concurrent requests in flight
+            for batch_start in range(0, len(prompts), max_concurrent):
+                batch_end = min(batch_start + max_concurrent, len(prompts))
+                batch_prompts = prompts[batch_start:batch_end]
+
+                print(f"[INFO] Processing batch {batch_start//max_concurrent + 1}: prompts {batch_start+1}-{batch_end} of {len(prompts)}")
+
+                # Create tasks only for this batch
+                batch_tasks = [
+                    single_request(session, prompt, batch_start + idx)
+                    for idx, prompt in enumerate(batch_prompts)
+                ]
+
+                # Wait for this batch to complete before starting the next
+                batch_results = await asyncio.gather(*batch_tasks)
+                all_results.extend(batch_results)
 
         # Sort by index to maintain original order
-        indexed_results.sort(key=lambda x: x[0])
-        results = [result for _, result in indexed_results]
+        all_results.sort(key=lambda x: x[0])
+        results = [result for _, result in all_results]
 
         return results
 

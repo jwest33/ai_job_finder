@@ -20,7 +20,7 @@ import json
 import argparse
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 from dotenv import load_dotenv
 
 # Add project root to path
@@ -99,6 +99,9 @@ class JobMatcherPipeline:
         # Job source detection
         self.job_source = "indeed"  # Default source
 
+        # SQL filter tracking (set by load_jobs_from_db when SQL filters are applied)
+        self._sql_filters_applied = False
+
         print("Pipeline initialized")
 
     def detect_source_from_filename(self, filename: str) -> str:
@@ -161,22 +164,98 @@ class JobMatcherPipeline:
         with open(input_file, "r", encoding="utf-8") as f:
             jobs = json.load(f)
 
+        # Mark that SQL filters were NOT applied (file loading doesn't use SQL)
+        self._sql_filters_applied = False
+
         print(f"Loaded {len(jobs)} jobs from file")
         return jobs
 
-    def load_jobs_from_db(self, source: str) -> List[Dict[str, Any]]:
+    def load_jobs_from_db(self, source: str, use_sql_filters: bool = True) -> List[Dict[str, Any]]:
         """
-        Load unprocessed jobs from DuckDB
+        Load unprocessed jobs from DuckDB with optional SQL-based pre-filtering
 
         Args:
             source: Job source identifier (e.g., "glassdoor", "indeed")
+            use_sql_filters: If True, apply deterministic filters at SQL level (much faster)
 
         Returns:
             List of job dicts
         """
-        df = self.storage.load_unprocessed_jobs(source)
-        if df is None or df.empty:
-            return []
+        if use_sql_filters:
+            # Extract filter parameters from analyzer
+            candidate_profile = self.analyzer.candidate_profile
+            preferences = self.analyzer.preferences
+
+            # Build title keywords from target roles and related keywords
+            title_keywords = []
+            target_roles = candidate_profile.get("target_roles", [])
+            related_keywords = candidate_profile.get("related_keywords", [])
+
+            # Extract individual words from target roles
+            for role in target_roles:
+                words = role.lower().split()
+                title_keywords.extend(words)
+            title_keywords.extend([k.lower() for k in related_keywords])
+
+            # Remove stop words and duplicates
+            stop_words = {"and", "or", "the", "a", "an", "for", "to", "of", "in", "with"}
+            title_keywords = list(set(k for k in title_keywords if k not in stop_words))
+
+            # Get exclude keywords
+            title_exclude_keywords = candidate_profile.get("title_exclude_keywords", [])
+
+            # Get other filter parameters
+            min_salary = preferences.get("min_salary")
+            max_salary = preferences.get("max_salary")
+            remote_only = preferences.get("remote_only", False)
+            job_types = preferences.get("job_types", [])
+            locations = preferences.get("locations", [])
+            max_job_age_days = preferences.get("max_job_age_days", 30)
+
+            # Check which filters are enabled via .env
+            if os.getenv('FILTER_TITLE_ENABLED', 'true').lower() != 'true':
+                title_keywords = None
+                title_exclude_keywords = None
+            if os.getenv('FILTER_SALARY_ENABLED', 'true').lower() != 'true':
+                min_salary = None
+                max_salary = None
+            if os.getenv('FILTER_REMOTE_ENABLED', 'true').lower() != 'true':
+                remote_only = False
+            if os.getenv('FILTER_JOB_TYPE_ENABLED', 'true').lower() != 'true':
+                job_types = None
+            if os.getenv('FILTER_LOCATION_ENABLED', 'true').lower() != 'true':
+                locations = None
+            if os.getenv('FILTER_POSTING_AGE_ENABLED', 'true').lower() != 'true':
+                max_job_age_days = None
+
+            print(f"\n🔍 Applying SQL-based filters to database...")
+            df, stats = self.storage.load_unprocessed_jobs_filtered(
+                source=source,
+                title_keywords=title_keywords if title_keywords else None,
+                title_exclude_keywords=title_exclude_keywords if title_exclude_keywords else None,
+                min_salary=min_salary,
+                max_salary=max_salary,
+                remote_only=remote_only,
+                job_types=job_types if job_types else None,
+                locations=locations if locations else None,
+                max_job_age_days=max_job_age_days,
+            )
+
+            # Print filter stats
+            print(f"✅ SQL filters passed: {stats['passed_jobs']} jobs")
+            print(f"❌ SQL filters rejected: {stats['rejected_jobs']} jobs")
+            print(f"📊 Pass rate: {stats['pass_rate']*100:.1f}%")
+
+            # Mark that SQL filtering was done (so Python filters can be skipped)
+            self._sql_filters_applied = True
+
+            if df is None or df.empty:
+                return []
+        else:
+            self._sql_filters_applied = False
+            df = self.storage.load_unprocessed_jobs(source)
+            if df is None or df.empty:
+                return []
 
         # Convert DataFrame to list of dicts
         jobs = df.to_dict("records")
@@ -218,7 +297,8 @@ class JobMatcherPipeline:
         return unprocessed
 
     def run_scoring_pass(
-        self, jobs: List[Dict[str, Any]], min_score: Optional[int] = None
+        self, jobs: List[Dict[str, Any]], min_score: Optional[int] = None,
+        api_progress_callback: Optional[Callable[[int, int, str], None]] = None
     ) -> List[Dict[str, Any]]:
         """
         Pass 1: Score jobs against resume and requirements
@@ -226,6 +306,8 @@ class JobMatcherPipeline:
         Args:
             jobs: List of job dicts
             min_score: Minimum score threshold (default: from config)
+            api_progress_callback: Optional callback for API progress updates
+                                   Signature: (current: int, total: int, message: str) -> None
 
         Returns:
             List of matched jobs (score >= min_score)
@@ -239,19 +321,30 @@ class JobMatcherPipeline:
         print(f"Jobs to score: {len(jobs)}")
         print()
 
+        total_jobs = len(jobs)
+
         def progress_callback(current, total, job):
             title = job.get("title", "Unknown")[:50]
             print(f"[{current}/{total}] Scoring: {title}...")
+            # Call API progress callback if provided
+            if api_progress_callback:
+                api_progress_callback(current, total_jobs, f"Scoring job {current}/{total_jobs}: {title}")
+
+        # Skip Python pre-filters if SQL filters were already applied at load time
+        apply_pre_filters = not getattr(self, '_sql_filters_applied', False)
+        if not apply_pre_filters:
+            print("(SQL pre-filters already applied, skipping Python filters)")
 
         print(f"Scoring jobs (batch queue mode: {self.use_batch_queue})...")
         if self.use_batch_queue:
-            scored_jobs = self.scorer.score_jobs_batch_queued(jobs, progress_callback)
+            scored_jobs = self.scorer.score_jobs_batch_queued(jobs, progress_callback, apply_pre_filters=apply_pre_filters)
         else:
-            scored_jobs = self.scorer.score_jobs_batch(jobs, progress_callback)
+            scored_jobs = self.scorer.score_jobs_batch(jobs, progress_callback, apply_pre_filters=apply_pre_filters)
 
         # Filter by minimum score
-        print(f"\nFiltering jobs with score >= {min_score}...")
+        print(f"\nFiltering jobs with score >= {min_score}...", flush=True)
         matched, rejected = self.scorer.filter_by_score(scored_jobs, min_score)
+        print(f"   {len(matched)} matched, {len(rejected)} rejected", flush=True)
 
         # Get title-filtered jobs
         title_rejected = self.scorer.get_rejected_jobs()
@@ -262,16 +355,19 @@ class JobMatcherPipeline:
         # Export failed jobs
         failed_jobs = self.scorer.get_failed_jobs()
         if failed_jobs:
+            print(f"   Exporting {len(failed_jobs)} failed jobs...", flush=True)
             self.export_failed_jobs("scoring", failed_jobs)
 
         # Export rejected jobs (below threshold) for manual review
         rejected_file = None
         if rejected:
+            print(f"   Saving {len(rejected)} rejected jobs to file...", flush=True)
             rejected_file = self.save_rejected_jobs(rejected)
+            print(f"   Saved to {rejected_file}", flush=True)
 
         # Mark ALL processed jobs as tracked (matched, rejected, filtered)
         # This prevents re-processing on subsequent runs
-        print("\nMarking all processed jobs in tracker...")
+        print("\nMarking all processed jobs in tracker...", flush=True)
         all_processed_jobs = matched + rejected + title_rejected + filtered_jobs + failed_jobs
         self.update_tracker_all_jobs(all_processed_jobs, default_score=0)
         print(f"[SUCCESS] Marked {len(all_processed_jobs)} jobs as processed")

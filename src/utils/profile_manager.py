@@ -16,6 +16,36 @@ from dotenv import load_dotenv, set_key, find_dotenv
 load_dotenv()
 
 
+def get_project_root() -> Path:
+    """Get the project root directory (where .env and profiles/ are located)"""
+    # This file is at: <project_root>/src/utils/profile_manager.py
+    # So project root is 2 levels up from parent
+    return Path(__file__).resolve().parent.parent.parent
+
+
+def get_active_profile() -> str:
+    """
+    Get the current active profile by reading directly from .env file.
+    This ensures we always get the latest value, not a cached one.
+    """
+    env_path = get_project_root() / ".env"
+    if env_path.exists():
+        try:
+            content = env_path.read_text(encoding='utf-8')
+            for line in content.splitlines():
+                line = line.strip()
+                if line.startswith('ACTIVE_PROFILE='):
+                    value = line.split('=', 1)[1].strip()
+                    # Remove quotes if present
+                    if (value.startswith('"') and value.endswith('"')) or \
+                       (value.startswith("'") and value.endswith("'")):
+                        value = value[1:-1]
+                    return value
+        except Exception:
+            pass
+    return os.getenv("ACTIVE_PROFILE", "default")
+
+
 class ProfilePaths:
     """Dynamic path resolution for profile-aware file access"""
 
@@ -26,8 +56,8 @@ class ProfilePaths:
         Args:
             profile_name: Profile name (default: from .env ACTIVE_PROFILE)
         """
-        self.profile_name = profile_name or os.getenv("ACTIVE_PROFILE", "default")
-        self.base_dir = Path("profiles") / self.profile_name
+        self.profile_name = profile_name or get_active_profile()
+        self.base_dir = get_project_root() / "profiles" / self.profile_name
 
     @property
     def templates_dir(self) -> Path:
@@ -75,6 +105,11 @@ class ProfilePaths:
         return self.data_dir / ".checkpoint_active.json"
 
     @property
+    def attachments_dir(self) -> Path:
+        """Get attachments directory for profile"""
+        return self.base_dir / "attachments"
+
+    @property
     def profile_config(self) -> Path:
         """Get profile-specific config file"""
         return self.base_dir / "profile.yaml"
@@ -84,6 +119,7 @@ class ProfilePaths:
         self.templates_dir.mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.reports_dir.mkdir(parents=True, exist_ok=True)
+        self.attachments_dir.mkdir(parents=True, exist_ok=True)
 
 
 class ProfileManager:
@@ -91,7 +127,7 @@ class ProfileManager:
 
     def __init__(self):
         """Initialize ProfileManager"""
-        self.profiles_root = Path("profiles")
+        self.profiles_root = get_project_root() / "profiles"
         self.profiles_root.mkdir(exist_ok=True)
 
     def list_profiles(self) -> List[str]:
@@ -118,7 +154,7 @@ class ProfileManager:
         Returns:
             Active profile name
         """
-        return os.getenv("ACTIVE_PROFILE", "default")
+        return get_active_profile()  # Use module-level function that reads from .env file
 
     def profile_exists(self, profile_name: str) -> bool:
         """
@@ -303,6 +339,13 @@ preferences:
 
         # Reload environment
         load_dotenv(override=True)
+
+        # Clear database connection cache to ensure new profile's database is used
+        try:
+            from src.core.database import DatabaseManager
+            DatabaseManager.close_all()
+        except ImportError:
+            pass  # Database module not available
 
         return True
 

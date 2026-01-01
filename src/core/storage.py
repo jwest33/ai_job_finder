@@ -404,6 +404,127 @@ class JobStorage:
 
         return df
 
+    def load_unprocessed_jobs_filtered(
+        self,
+        source: Optional[str] = None,
+        title_keywords: Optional[List[str]] = None,
+        title_exclude_keywords: Optional[List[str]] = None,
+        min_salary: Optional[float] = None,
+        max_salary: Optional[float] = None,
+        remote_only: bool = False,
+        job_types: Optional[List[str]] = None,
+        locations: Optional[List[str]] = None,
+        max_job_age_days: Optional[int] = None,
+    ) -> tuple[Optional[pd.DataFrame], Dict[str, Any]]:
+        """
+        Load unprocessed jobs with SQL-based filtering (much faster than Python filtering)
+
+        Args:
+            source: Optional source filter
+            title_keywords: Keywords that must appear in title (OR logic)
+            title_exclude_keywords: Keywords that must NOT appear in title
+            min_salary: Minimum salary requirement
+            max_salary: Maximum salary requirement
+            remote_only: If True, only return remote jobs
+            job_types: List of acceptable job types (e.g., ["full-time", "fulltime"])
+            locations: List of preferred locations (for non-remote jobs)
+            max_job_age_days: Maximum age of job posting in days
+
+        Returns:
+            Tuple of (DataFrame with filtered jobs, filter statistics dict)
+        """
+        from datetime import datetime, timedelta
+
+        # Build WHERE conditions
+        conditions = ["match_score IS NULL"]
+        params = []
+
+        if source:
+            conditions.append("source = ?")
+            params.append(source)
+
+        # Title keyword filter (OR logic - any keyword matches)
+        if title_keywords:
+            keyword_conditions = []
+            for keyword in title_keywords:
+                keyword_conditions.append("LOWER(title) LIKE ?")
+                params.append(f"%{keyword.lower()}%")
+            if keyword_conditions:
+                conditions.append(f"({' OR '.join(keyword_conditions)})")
+
+        # Title exclude filter (AND logic - none of these keywords)
+        if title_exclude_keywords:
+            for keyword in title_exclude_keywords:
+                conditions.append("LOWER(title) NOT LIKE ?")
+                params.append(f"%{keyword.lower()}%")
+
+        # Salary filter - reject if job's max salary is below our minimum
+        if min_salary:
+            # Only filter if salary_max is provided AND it's below our minimum
+            conditions.append("(salary_max IS NULL OR salary_max >= ?)")
+            params.append(min_salary)
+
+        # Salary filter - reject if job's min salary is above our maximum
+        if max_salary:
+            conditions.append("(salary_min IS NULL OR salary_min <= ?)")
+            params.append(max_salary)
+
+        # Remote filter
+        if remote_only:
+            conditions.append("(remote = TRUE OR LOWER(location) LIKE '%remote%')")
+
+        # Job type filter
+        if job_types:
+            type_conditions = []
+            for jtype in job_types:
+                # Normalize: remove hyphens and spaces for matching
+                normalized = jtype.lower().replace("-", "").replace(" ", "")
+                type_conditions.append("LOWER(REPLACE(REPLACE(job_type, '-', ''), ' ', '')) = ?")
+                params.append(normalized)
+            if type_conditions:
+                # Also allow NULL job_type (don't exclude jobs without type info)
+                conditions.append(f"(job_type IS NULL OR {' OR '.join(type_conditions)})")
+
+        # Location filter (only applies to non-remote jobs)
+        if locations and not remote_only:
+            location_conditions = ["remote = TRUE"]  # Remote jobs always pass
+            for loc in locations:
+                location_conditions.append("LOWER(location) LIKE ?")
+                params.append(f"%{loc.lower()}%")
+            conditions.append(f"({' OR '.join(location_conditions)})")
+
+        # Job age filter
+        if max_job_age_days:
+            cutoff_date = (datetime.now() - timedelta(days=max_job_age_days)).strftime('%Y-%m-%d')
+            # Only filter if date_posted is provided AND it's older than cutoff
+            conditions.append("(date_posted IS NULL OR date_posted >= ?)")
+            params.append(cutoff_date)
+
+        # Get total count before filtering (for stats)
+        count_query = f"SELECT COUNT(*) FROM jobs WHERE source = ? AND match_score IS NULL" if source else "SELECT COUNT(*) FROM jobs WHERE match_score IS NULL"
+        count_params = (source,) if source else ()
+        total_before = self.db.fetchone(count_query, count_params)[0]
+
+        # Build final query
+        where_clause = " AND ".join(conditions)
+        query = f"SELECT * FROM jobs WHERE {where_clause} ORDER BY first_seen DESC"
+
+        df = self.db.fetchdf(query, tuple(params))
+
+        # Calculate stats
+        total_after = len(df) if not df.empty else 0
+        stats = {
+            "total_jobs": total_before,
+            "passed_jobs": total_after,
+            "rejected_jobs": total_before - total_after,
+            "pass_rate": total_after / total_before if total_before > 0 else 0,
+        }
+
+        if df.empty:
+            return None, stats
+
+        return df, stats
+
     def load_matched_jobs(
         self,
         source: Optional[str] = None,

@@ -167,8 +167,8 @@ class BatchQueueProcessor:
             result_merger
         )
 
-        print(f"   Processed {len(processed_jobs)} jobs successfully")
-        print(f"[INFO] Result merging: {time.time() - phase_start:.2f}s")
+        print(f"   Processed {len(processed_jobs)} jobs successfully", flush=True)
+        print(f"[INFO] Result merging: {time.time() - phase_start:.2f}s", flush=True)
 
         return processed_jobs
 
@@ -276,8 +276,6 @@ class BatchQueueProcessor:
         Returns:
             Dictionary mapping job index to AI result (None on failure)
         """
-        import asyncio
-
         results = {}
 
         # Collect post-processing work to do AFTER GPU batch completes
@@ -285,106 +283,36 @@ class BatchQueueProcessor:
         failure_queue = []     # [(job, error_msg)]
         progress_queue = []    # [(job_index, job)]
 
-        # Check if llama_client and required parameters were provided for async batch mode
-        # Debug: Print each condition to diagnose why async mode might not be available
-        llama_client_provided = llama_client is not None
-        has_async_method = hasattr(llama_client, 'generate_json_batch_async') if llama_client else False
-        temperature_provided = temperature is not None
-        max_tokens_provided = max_tokens is not None
-        json_schema_provided = json_schema is not None
+        # Use strict batch processing - only max_workers requests in flight at a time
+        print(f"   Processing {len(queued_jobs)} jobs in batches of {self.max_workers}", flush=True)
 
-        use_async_batch = (
-            llama_client_provided
-            and has_async_method
-            and temperature_provided
-            and max_tokens_provided
-            and json_schema_provided
-        )
+        def execute_single_request(queued_job: QueuedJob) -> Tuple[int, Optional[Dict[str, Any]], QueuedJob]:
+            """Execute AI request for a single queued job"""
+            try:
+                result = ai_executor(queued_job.prompt)
+                return (queued_job.index, result, queued_job)
+            except Exception as e:
+                return (queued_job.index, None, queued_job)
 
-        # Debug output (can be removed after diagnosis)
-        print(f"[DEBUG] Async batch mode checks:")
-        print(f"   llama_client provided: {llama_client_provided}")
-        print(f"   has async method: {has_async_method}")
-        print(f"   temperature provided: {temperature_provided} (value: {temperature})")
-        print(f"   max_tokens provided: {max_tokens_provided} (value: {max_tokens})")
-        print(f"   json_schema provided: {json_schema_provided}")
-        print(f"   → use_async_batch: {use_async_batch}")
+        # Process in explicit batches - NEVER more than max_workers in flight
+        total_jobs = len(queued_jobs)
+        for batch_start in range(0, total_jobs, self.max_workers):
+            batch_end = min(batch_start + self.max_workers, total_jobs)
+            batch_jobs = queued_jobs[batch_start:batch_end]
+            batch_num = batch_start // self.max_workers + 1
+            total_batches = (total_jobs + self.max_workers - 1) // self.max_workers
 
-        if use_async_batch:
-            # Use async batch mode for optimal GPU saturation
-            print(f"   Using async batch mode (submitting all {len(queued_jobs)} requests simultaneously)")
+            print(f"   [Batch {batch_num}/{total_batches}] Processing jobs {batch_start+1}-{batch_end} of {total_jobs}...", flush=True)
 
-            # Extract prompts in order
-            prompts = [job.prompt for job in queued_jobs]
-
-            # Execute all requests simultaneously
-            batch_results = asyncio.run(
-                llama_client.generate_json_batch_async(
-                    prompts,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    json_schema=json_schema
-                )
-            )
-
-            # Map results back to job indices
-            for idx, (queued_job, result) in enumerate(zip(queued_jobs, batch_results)):
-                results[queued_job.index] = result
-
-                # Queue post-processing work
-                if result:
-                    checkpoint_queue.append((queued_job.job_url, True))
-                else:
-                    checkpoint_queue.append((queued_job.job_url, False))
-                    failure_queue.append((queued_job.job, "AI batch request returned None"))
-
-                progress_queue.append((queued_job.index, queued_job.job))
-
-        else:
-            # Fallback to thread-based execution (old behavior)
-            print(f"   Using thread-based execution (async batch mode not available)")
-
-            def execute_single_request(queued_job: QueuedJob) -> Tuple[int, Optional[Dict[str, Any]], QueuedJob]:
-                """
-                Execute AI request for a single queued job
-
-                CRITICAL: Does ONLY GPU work. All post-processing is deferred.
-
-                Args:
-                    queued_job: QueuedJob with prompt
-
-                Returns:
-                    Tuple of (job_index, result_dict or None, queued_job)
-                """
-                try:
-                    # Execute AI request (ONLY GPU WORK - no I/O, no locks)
-                    result = ai_executor(queued_job.prompt)
-
-                    return (queued_job.index, result, queued_job)
-
-                except Exception as e:
-                    # Return error state (will be processed in bulk later)
-                    return (queued_job.index, None, queued_job)
-
-            # Execute all requests using ThreadPoolExecutor
-            # Submit as fast as possible with NO post-processing delays
+            # Submit ONLY this batch to executor and wait for ALL to complete
             with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                # Submit all jobs with optional staggered delay
-                futures = []
-                for queued_job in queued_jobs:
-                    future = executor.submit(execute_single_request, queued_job)
-                    futures.append(future)
+                batch_futures = [executor.submit(execute_single_request, job) for job in batch_jobs]
 
-                    # Optional small delay to smooth request flow
-                    if self.queue_delay_ms > 0:
-                        time.sleep(self.queue_delay_ms / 1000.0)
-
-                # Collect results as they complete (NO post-processing yet)
-                for future in as_completed(futures):
+                # Wait for this batch to complete before starting next
+                for future in as_completed(batch_futures):
                     job_idx, result, queued_job = future.result()
                     results[job_idx] = result
 
-                    # Queue post-processing work for later
                     if result:
                         checkpoint_queue.append((queued_job.job_url, True))
                     else:
@@ -392,6 +320,8 @@ class BatchQueueProcessor:
                         failure_queue.append((queued_job.job, "AI executor returned None or exception occurred"))
 
                     progress_queue.append((job_idx, queued_job.job))
+
+            print(f"   [Batch {batch_num}/{total_batches}] Complete", flush=True)
 
         # POST-PROCESSING PHASE: Do all I/O and tracking AFTER GPU work completes
         print(f"\n[INFO] Processing batch results...")

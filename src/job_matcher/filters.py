@@ -40,6 +40,32 @@ class JobFilters:
         # Get max job age from preferences (default: 30 days)
         self.max_job_age_days = self.preferences.get('max_job_age_days', 30)
 
+        # Pre-computed title keywords (built on demand)
+        self._title_keywords = None
+        self._title_exclude_keywords = None
+
+    def _precompute_title_keywords(self):
+        """Pre-compute title keywords once instead of per-job."""
+        if self._title_keywords is not None:
+            return  # Already computed
+
+        # Get excluded keywords
+        self._title_exclude_keywords = [k.lower() for k in self.requirements.get('title_exclude_keywords', [])]
+
+        # Build all keywords from target roles and related keywords
+        target_titles = self.requirements.get('target_roles', [])
+        related_keywords = self.requirements.get('related_keywords', [])
+
+        all_keywords = []
+        for title in target_titles:
+            words = title.lower().split()
+            all_keywords.extend(words)
+        all_keywords.extend([k.lower() for k in related_keywords])
+
+        # Remove duplicates and stop words
+        stop_words = {'and', 'or', 'the', 'a', 'an', 'for', 'to', 'of', 'in', 'with'}
+        self._title_keywords = [k for k in set(all_keywords) if k not in stop_words]
+
     def apply_all_filters(self, job: Dict[str, Any]) -> Tuple[bool, List[str]]:
         """
         Apply all enabled filters to a job
@@ -100,7 +126,8 @@ class JobFilters:
         """
         Filter by job title relevance
 
-        Checks if title contains target keywords or matches excluded patterns
+        Checks if title contains target keywords or matches excluded patterns.
+        Uses precomputed keywords for speed if available.
 
         Returns:
             Tuple of (passes: bool, rejection_reason: Optional[str])
@@ -110,30 +137,30 @@ class JobFilters:
 
         title_lower = job.title.job_title.lower()
 
+        # Use precomputed keywords if available, otherwise compute on-demand
+        if self._title_exclude_keywords is not None:
+            exclude_keywords = self._title_exclude_keywords
+        else:
+            exclude_keywords = [k.lower() for k in self.requirements.get('title_exclude_keywords', [])]
+
         # Check excluded keywords first
-        exclude_keywords = self.requirements.get('title_exclude_keywords', [])
         for keyword in exclude_keywords:
-            if keyword.lower() in title_lower:
+            if keyword in title_lower:
                 return False, f"Title contains excluded keyword: '{keyword}'"
 
-        # Check required keywords
-        target_titles = self.requirements.get('target_roles', [])
-        related_keywords = self.requirements.get('related_keywords', [])
-
-        # Combine all keywords to check
-        all_keywords = []
-
-        # Extract words from target titles
-        for title in target_titles:
-            words = title.lower().split()
-            all_keywords.extend(words)
-
-        # Add related keywords
-        all_keywords.extend([k.lower() for k in related_keywords])
-
-        # Remove duplicates and stop words
-        stop_words = {'and', 'or', 'the', 'a', 'an', 'for', 'to', 'of', 'in', 'with'}
-        all_keywords = [k for k in set(all_keywords) if k not in stop_words]
+        # Use precomputed keywords if available
+        if self._title_keywords is not None:
+            all_keywords = self._title_keywords
+        else:
+            # Fallback: compute on-demand
+            target_titles = self.requirements.get('target_roles', [])
+            related_keywords = self.requirements.get('related_keywords', [])
+            all_keywords = []
+            for title in target_titles:
+                all_keywords.extend(title.lower().split())
+            all_keywords.extend([k.lower() for k in related_keywords])
+            stop_words = {'and', 'or', 'the', 'a', 'an', 'for', 'to', 'of', 'in', 'with'}
+            all_keywords = [k for k in set(all_keywords) if k not in stop_words]
 
         # If no keywords defined, pass all
         if not all_keywords:
@@ -360,7 +387,7 @@ def apply_filters_to_jobs(
     preferences: Dict[str, Any]
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, int]]:
     """
-    Apply deterministic filters to a batch of jobs
+    Apply deterministic filters to a batch of jobs (parallelized for speed)
 
     Args:
         jobs: List of raw job dictionaries
@@ -374,25 +401,39 @@ def apply_filters_to_jobs(
             stats: Dictionary with filter statistics
         )
     """
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+
     filters = JobFilters(candidate_requirements, preferences)
+
+    # Pre-compute keywords once (avoid rebuilding per job)
+    filters._precompute_title_keywords()
 
     passed_jobs = []
     rejected_jobs = []
     rejection_stats = {}
+    lock = threading.Lock()
 
-    for job in jobs:
+    def filter_single_job(job):
+        """Filter a single job - thread safe."""
         passes, reasons = filters.apply_all_filters(job)
+        return job, passes, reasons
 
+    # Use thread pool for parallel filtering
+    num_workers = min(8, len(jobs))
+
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        results = list(executor.map(filter_single_job, jobs))
+
+    # Process results (single-threaded to maintain order)
+    for job, passes, reasons in results:
         if passes:
             passed_jobs.append(job)
         else:
-            # Add rejection reasons to job
             job_with_reasons = {**job, 'filter_rejection_reasons': reasons}
             rejected_jobs.append(job_with_reasons)
 
-            # Track rejection reasons
             for reason in reasons:
-                # Extract filter type from reason
                 filter_type = reason.split(':')[0] if ':' in reason else reason.split(' ')[0]
                 rejection_stats[filter_type] = rejection_stats.get(filter_type, 0) + 1
 

@@ -11,9 +11,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from pathlib import Path
 
 from .config import MCPServerConfig, TOOL_CAPABILITIES
+from .api.router import api_router
 from .auth import require_auth, optional_auth, MCPAuth
 from .utils.response_formatter import (
     format_success_response,
@@ -129,6 +132,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount API router for web application
+app.include_router(api_router)
+
+# Serve static files from web build (if exists)
+web_dist = Path(__file__).parent.parent.parent / "web" / "dist"
+if web_dist.exists():
+    app.mount("/", StaticFiles(directory=str(web_dist), html=True), name="static")
 
 
 # =============================================================================

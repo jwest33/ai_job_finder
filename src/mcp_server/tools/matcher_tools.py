@@ -79,7 +79,8 @@ class MatcherFullPipelineTool(BaseTool):
         skip_processed = not params.get("no_skip", False)
 
         # Initialize all components
-        profile_name = os.getenv("ACTIVE_PROFILE", "default")
+        from src.utils.profile_manager import get_active_profile
+        profile_name = get_active_profile()
         tracker = JobTracker()
         client = LlamaClient()
         analyzer = ResumeAnalyzer()

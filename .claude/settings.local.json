@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(tree:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(Select-String \"ACTIVE_PROFILE\")",
+      "Bash(python:*)"
     ]
   }
 }
