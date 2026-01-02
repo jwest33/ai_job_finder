@@ -50,9 +50,9 @@ Edit the following files:
 
 ```bash
 # Start llama-server on localhost:8080 (required for job matching)
-llama-server --model /path/to/model.gguf --ctx-size 8192 --port 8080
+llama-server --model /path/to/model.gguf --ctx-size 131072 --cache-type-k q8_0 --cache-type-v q8_0 --port 8080
 
-llama-server --model "D:\models\Qwen3-30B-A3B-Instruct-2507\Qwen3-30B-A3B-Instruct-2507-Q6_K.gguf"  --ctx-size 6144 --ubatch-size 1024
+llama-server --model "D:\models\gemma-3-12b-it-norm-preserved-biprojected-abliterated\gguf\gemma-3-12b-it-norm-preserved-biprojected-abliterated-q8_0.gguf" --mmproj "D:\models\gemma-3-12b-it-norm-preserved-biprojected-abliterated\gguf\mmproj-gemma-3-12b-it-f16.gguf"  --ctx-size 131072 --cache-type-k q8_0 --cache-type-v q8_0
 ```
 
 ### 5. Setup Email Delivery (Optional)

@@ -8,9 +8,70 @@ import pandas as pd
 
 from .models import JobPost
 from .scrapers import IndeedScraper, GlassdoorScraper
+from .config import USE_VLM_GLASSDOOR
+
+
+def cleanup_glassdoor_browser():
+    """
+    Close the Glassdoor VLM browser completely.
+    Call this when all scraping is done to free resources.
+    """
+    try:
+        from .scrapers.glassdoor_vlm import close_singleton_browser
+        close_singleton_browser()
+    except ImportError:
+        pass  # VLM not available
 
 # Disabled scrapers (need GraphQL/API implementation):
 # from .scrapers import LinkedInScraper, ZipRecruiterScraper
+
+
+def get_glassdoor_scraper(
+    proxies: Optional[List[str]] = None,
+    use_proxies: bool = True,
+    proxy_session: Optional[str] = None,
+    use_vlm: Optional[bool] = None,
+):
+    """
+    Factory function to get the appropriate Glassdoor scraper.
+
+    Args:
+        proxies: List of proxy URLs
+        use_proxies: Whether to use proxies
+        proxy_session: Proxy session ID for IP rotation
+        use_vlm: Force VLM (True) or GraphQL (False) scraper.
+                 If None, uses USE_VLM_GLASSDOOR config.
+
+    Returns:
+        GlassdoorVLMScraper or GlassdoorScraper instance
+    """
+    # Determine which scraper to use
+    should_use_vlm = use_vlm if use_vlm is not None else USE_VLM_GLASSDOOR
+
+    if should_use_vlm:
+        try:
+            from .scrapers.glassdoor_vlm import GlassdoorVLMScraper
+            scraper = GlassdoorVLMScraper(
+                proxies=proxies,
+                use_proxies=use_proxies,
+                proxy_session=proxy_session,
+            )
+            # Check if VLM is actually available
+            if scraper.vlm_available:
+                print("[INFO] Using VLM-powered Glassdoor scraper")
+                return scraper
+            else:
+                print("[INFO] VLM not available, falling back to GraphQL scraper")
+        except ImportError as e:
+            print(f"[WARNING] VLM scraper not available: {e}")
+
+    # Fall back to GraphQL scraper
+    print("[INFO] Using GraphQL Glassdoor scraper")
+    return GlassdoorScraper(
+        proxies=proxies,
+        use_proxies=use_proxies,
+        proxy_session=proxy_session,
+    )
 
 
 def scrape_jobs(
@@ -80,11 +141,12 @@ def scrape_jobs(
 
     print(f"Scraping {len(site_names)} site(s) for '{search_term}' in {location}...")
 
-    # Create scrapers with proxy support
-    scrapers = []
+    # Separate scrapers into concurrent (Indeed, etc.) and sequential (Glassdoor VLM)
+    concurrent_scrapers = []
+    glassdoor_scraper = None
 
     if "indeed" in site_names:
-        scrapers.append(
+        concurrent_scrapers.append(
             (
                 "indeed",
                 IndeedScraper(proxies=proxies, use_proxies=use_proxies, proxy_session=proxy_session),
@@ -93,22 +155,19 @@ def scrape_jobs(
         )
 
     if "glassdoor" in site_names:
-        scrapers.append(
-            (
-                "glassdoor",
-                GlassdoorScraper(proxies=proxies, use_proxies=use_proxies, proxy_session=proxy_session),
-                {},
-            )
+        # Glassdoor uses VLM with singleton browser - must run sequentially
+        glassdoor_scraper = get_glassdoor_scraper(
+            proxies=proxies, use_proxies=use_proxies, proxy_session=proxy_session
         )
 
     # Disabled scrapers - need GraphQL/API implementation
     # if "linkedin" in site_names:
-    #     scrapers.append(
+    #     concurrent_scrapers.append(
     #         ("linkedin", LinkedInScraper(proxies=proxies, use_proxies=use_proxies), {})
     #     )
     #
     # if "zip_recruiter" in site_names:
-    #     scrapers.append(
+    #     concurrent_scrapers.append(
     #         (
     #             "zip_recruiter",
     #             ZipRecruiterScraper(proxies=proxies, use_proxies=use_proxies),
@@ -116,40 +175,61 @@ def scrape_jobs(
     #         )
     #     )
 
-    # Scrape jobs concurrently
     all_jobs = []
 
-    with ThreadPoolExecutor(max_workers=len(scrapers)) as executor:
-        # Submit all scraping tasks
-        future_to_scraper = {}
+    # Run concurrent scrapers (Indeed, etc.) in parallel
+    if concurrent_scrapers:
+        with ThreadPoolExecutor(max_workers=len(concurrent_scrapers)) as executor:
+            future_to_scraper = {}
 
-        for site, scraper, site_kwargs in scrapers:
-            future = executor.submit(
-                _scrape_site,
-                scraper,
+            for site, scraper, site_kwargs in concurrent_scrapers:
+                future = executor.submit(
+                    _scrape_site,
+                    scraper,
+                    search_term,
+                    location,
+                    results_wanted,
+                    hours_old,
+                    site_kwargs,
+                )
+                future_to_scraper[future] = (site, scraper)
+
+            for future in as_completed(future_to_scraper):
+                site, scraper = future_to_scraper[future]
+                try:
+                    jobs = future.result()
+                    all_jobs.extend(jobs)
+                    print(f"Found {len(jobs)} jobs from {site}")
+                except Exception as e:
+                    print(f"Error scraping {site}: {e}")
+                finally:
+                    try:
+                        scraper.close()
+                    except:
+                        pass
+
+    # Run Glassdoor separately (uses singleton browser, must be sequential)
+    if glassdoor_scraper:
+        try:
+            print("Starting Glassdoor scrape (sequential)...")
+            jobs = _scrape_site(
+                glassdoor_scraper,
                 search_term,
                 location,
                 results_wanted,
                 hours_old,
-                site_kwargs,
+                {},
             )
-            future_to_scraper[future] = (site, scraper)
-
-        # Collect results as they complete
-        for future in as_completed(future_to_scraper):
-            site, scraper = future_to_scraper[future]
+            all_jobs.extend(jobs)
+            print(f"Found {len(jobs)} jobs from glassdoor")
+        except Exception as e:
+            print(f"Error scraping glassdoor: {e}")
+        finally:
             try:
-                jobs = future.result()
-                all_jobs.extend(jobs)
-                print(f"Found {len(jobs)} jobs from {site}")
-            except Exception as e:
-                print(f"Error scraping {site}: {e}")
-            finally:
-                # Close scraper session
-                try:
-                    scraper.close()
-                except:
-                    pass
+                # Close page but keep browser open for potential future searches
+                glassdoor_scraper.close(close_browser=False)
+            except:
+                pass
 
     # Convert to DataFrame
     if not all_jobs:

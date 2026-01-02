@@ -212,11 +212,11 @@ def _run_full_search_pipeline(task_id: str, params, profile_name: str):
             jobs_by_source[source] = []
         jobs_by_source[source].append(job)
 
-    # Save each source batch
+    # Save each source batch using TRUE batch operations (single connection)
     for source, jobs in jobs_by_source.items():
         if jobs:
-            storage.save_jobs(jobs, source=source)
-            print(f"[INFO] Saved {len(jobs)} jobs from {source}")
+            result = storage.save_jobs_batch(jobs, source=source)
+            print(f"[INFO] Saved {result.get('saved', 0)} new, updated {result.get('updated', 0)} from {source}")
 
     return len(all_jobs)
 

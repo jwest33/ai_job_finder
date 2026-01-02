@@ -124,6 +124,122 @@ class JobTracker:
 
         return True
 
+    def add_jobs_batch(
+        self,
+        jobs: List[Dict[str, Any]],
+        default_score: int = 0,
+    ) -> Dict[str, int]:
+        """
+        Add multiple jobs to the tracker in a single batch operation.
+
+        Much faster than calling add_job() individually for each job,
+        as it minimizes database lock contention.
+
+        Args:
+            jobs: List of job dicts with keys: job_url, title, company, location, match_score
+            default_score: Default score for jobs without match_score
+
+        Returns:
+            Dict with counts: {"inserted": N, "updated": M}
+        """
+        if not jobs:
+            return {"inserted": 0, "updated": 0}
+
+        # Extract all job URLs
+        job_urls = [job.get("job_url", "") for job in jobs if job.get("job_url")]
+        if not job_urls:
+            return {"inserted": 0, "updated": 0}
+
+        # Get existing URLs in one query
+        placeholders = ",".join(["?" for _ in job_urls])
+        existing_result = self.db.fetchall(
+            f"SELECT job_url FROM processed_jobs WHERE job_url IN ({placeholders})",
+            tuple(job_urls)
+        )
+        existing_urls = {row[0] for row in existing_result}
+
+        now = datetime.now()
+        report_date = now.strftime("%Y-%m-%d")
+
+        # Separate new vs existing jobs
+        new_jobs = []
+        existing_jobs = []
+        for job in jobs:
+            job_url = job.get("job_url", "")
+            if not job_url:
+                continue
+            if job_url in existing_urls:
+                existing_jobs.append(job)
+            else:
+                new_jobs.append(job)
+
+        inserted = 0
+        updated = 0
+
+        # Batch insert new jobs using INSERT with multiple value sets
+        if new_jobs:
+            # Build batch insert - DuckDB supports multi-row INSERT
+            values = []
+            params = []
+            for job in new_jobs:
+                values.append("(?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                params.extend([
+                    job.get("job_url", ""),
+                    job.get("title", "Unknown"),
+                    job.get("company", "Unknown"),
+                    job.get("location", "Unknown"),
+                    job.get("match_score", default_score),
+                    report_date,
+                    now,
+                    now,
+                    1,
+                ])
+
+            insert_sql = f"""
+                INSERT INTO processed_jobs
+                (job_url, job_title, company, location, match_score,
+                 report_date, first_seen, last_seen, times_seen)
+                VALUES {",".join(values)}
+            """
+            try:
+                self.db.execute(insert_sql, tuple(params))
+                inserted = len(new_jobs)
+            except Exception as e:
+                print(f"[WARNING] Batch insert failed, falling back to individual inserts: {e}")
+                # Fallback to individual inserts if batch fails
+                for job in new_jobs:
+                    try:
+                        self.add_job(
+                            job_url=job.get("job_url", ""),
+                            job_title=job.get("title", "Unknown"),
+                            company=job.get("company", "Unknown"),
+                            location=job.get("location", "Unknown"),
+                            match_score=job.get("match_score", default_score),
+                        )
+                        inserted += 1
+                    except Exception:
+                        pass
+
+        # Batch update existing jobs - use a single UPDATE with CASE
+        if existing_jobs:
+            # For updates, we need to update last_seen, times_seen, and match_score
+            # DuckDB doesn't support UPDATE with JOIN well, so we use individual updates
+            # but we can at least do them without the is_processed check
+            for job in existing_jobs:
+                try:
+                    self.db.execute("""
+                        UPDATE processed_jobs
+                        SET last_seen = ?,
+                            times_seen = times_seen + 1,
+                            match_score = ?
+                        WHERE job_url = ?
+                    """, (now, job.get("match_score", default_score), job.get("job_url", "")))
+                    updated += 1
+                except Exception:
+                    pass
+
+        return {"inserted": inserted, "updated": updated}
+
     def get_job(self, job_url: str) -> Optional[Dict[str, Any]]:
         """
         Get job information from tracker

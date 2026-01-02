@@ -295,18 +295,15 @@ def main():
     print("=" * 80 + "\n")
 
     if all_jobs:
-        saved_files = storage.save_jobs(
+        # Use batch save for much better performance (single DB connection)
+        result = storage.save_jobs_batch(
             jobs=all_jobs,
-            format=output_format,
-            deduplicate=deduplicate,
-            append_to_latest=True,
             source="indeed",  # Indeed is the only active scraper
         )
 
-        print(f"\nTotal unique jobs collected: {len(all_jobs)}")
-        print(f"\n[INFO] Saved to:")
-        for file_type, file_path in saved_files.items():
-            print(f"   {file_type}: {file_path}")
+        print(f"\nTotal jobs processed: {len(all_jobs)}")
+        print(f"New jobs saved: {result.get('saved', 0)}")
+        print(f"Existing jobs updated: {result.get('updated', 0)}")
     else:
         print("[WARNING] No jobs collected")
 

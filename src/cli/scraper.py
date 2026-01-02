@@ -429,6 +429,14 @@ def search(jobs, locations, results, scraper, yes, dry_run):
     except Exception as e:
         handle_error(e, verbose=cli_state.verbose)
         raise
+    finally:
+        # Clean up Glassdoor browser if it was used
+        if 'glassdoor' in config.get('scrapers', []):
+            try:
+                from src.core.scraper import cleanup_glassdoor_browser
+                cleanup_glassdoor_browser()
+            except:
+                pass
 
 
 @scraper_group.command(name="config")

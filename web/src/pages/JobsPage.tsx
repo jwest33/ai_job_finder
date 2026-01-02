@@ -34,6 +34,8 @@ export function JobsPage() {
   const handleStatusChange = async (jobUrl: string, status: ApplicationStatus) => {
     try {
       await updateApplicationStatus(jobUrl, status);
+      // Refetch jobs to ensure UI is in sync with server
+      await fetchJobs();
       toast.success(`Status updated to ${status.replace('_', ' ')}`);
     } catch {
       toast.error('Failed to update status');

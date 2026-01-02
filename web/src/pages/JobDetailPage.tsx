@@ -47,6 +47,8 @@ export function JobDetailPage() {
   const handleStatusChange = async (status: ApplicationStatus) => {
     try {
       await updateApplicationStatus(decodedUrl, status);
+      // Invalidate the query cache to refetch with updated status
+      queryClient.invalidateQueries({ queryKey: ['job', decodedUrl] });
       toast.success(`Status updated to ${status.replace('_', ' ')}`);
     } catch {
       toast.error('Failed to update status');

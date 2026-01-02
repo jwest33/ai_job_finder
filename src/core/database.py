@@ -412,6 +412,83 @@ class DatabaseManager:
             finally:
                 conn.close()
 
+    def batch_context(self) -> "BatchContext":
+        """Get a batch context for performing multiple operations on a single connection.
+
+        Usage:
+            with db.batch_context() as batch:
+                batch.execute("INSERT INTO ...", params1)
+                batch.execute("INSERT INTO ...", params2)
+                # All operations use same connection, committed at end
+
+        This is MUCH faster than individual operations for bulk inserts/updates.
+        """
+        return BatchContext(self)
+
+
+class BatchContext:
+    """Context manager for batch database operations using a single connection.
+
+    Holds the database lock and connection for the duration of the batch,
+    avoiding the overhead of acquiring lock and opening connection for each operation.
+    """
+
+    def __init__(self, db_manager: DatabaseManager):
+        self._db = db_manager
+        self._conn: Optional[duckdb.DuckDBPyConnection] = None
+        self._lock_acquired = False
+
+    def __enter__(self) -> "BatchContext":
+        """Acquire lock and open connection for batch operations."""
+        self._db._conn_lock.acquire()
+        self._lock_acquired = True
+        try:
+            self._conn = self._db._connect(read_only=False)
+            return self
+        except Exception:
+            self._db._conn_lock.release()
+            self._lock_acquired = False
+            raise
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Close connection and release lock."""
+        try:
+            if self._conn:
+                self._conn.close()
+                self._conn = None
+        finally:
+            if self._lock_acquired:
+                self._db._conn_lock.release()
+                self._lock_acquired = False
+        return False  # Don't suppress exceptions
+
+    def execute(self, query: str, params: tuple = None):
+        """Execute a query on the batch connection."""
+        if not self._conn:
+            raise RuntimeError("BatchContext not entered - use 'with db.batch_context() as batch:'")
+        if params:
+            return self._conn.execute(query, params)
+        return self._conn.execute(query)
+
+    def fetchone(self, query: str, params: tuple = None) -> Optional[tuple]:
+        """Execute query and fetch one result."""
+        result = self.execute(query, params)
+        return result.fetchone()
+
+    def fetchall(self, query: str, params: tuple = None) -> List[tuple]:
+        """Execute query and fetch all results."""
+        result = self.execute(query, params)
+        return result.fetchall()
+
+    def executemany(self, query: str, params_list: List[tuple]):
+        """Execute a query multiple times with different parameters.
+
+        More efficient than calling execute() in a loop for simple queries.
+        """
+        if not self._conn:
+            raise RuntimeError("BatchContext not entered")
+        self._conn.executemany(query, params_list)
+
 
 def get_database(profile_name: Optional[str] = None) -> DatabaseManager:
     """

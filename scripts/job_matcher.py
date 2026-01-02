@@ -72,6 +72,9 @@ class JobMatcherPipeline:
         self.storage = JobStorage(profile_name=self.profile_name)
         self.db = get_database(self.profile_name)
 
+        # Process any pending database writes from previous failed saves
+        self._process_pending_writes()
+
         self.tracker = JobTracker()
         self.client = LlamaClient()
         self.analyzer = ResumeAnalyzer()
@@ -128,6 +131,19 @@ class JobMatcherPipeline:
         else:
             # Default to indeed for backward compatibility
             return "indeed"
+
+    def _process_pending_writes(self):
+        """Process any pending database writes from previous failed saves."""
+        try:
+            from src.core.pending_writes import get_pending_manager
+            pending_manager = get_pending_manager(self.profile_name)
+            stats = pending_manager.get_pending_stats()
+            if stats["file_count"] > 0:
+                print(f"[INFO] Found {stats['file_count']} pending write files ({stats['total_records']} records)")
+                result = pending_manager.process_pending(self.storage)
+                print(f"[INFO] Processed pending writes: {result['processed']} records, {result['failed']} failed")
+        except Exception as e:
+            print(f"[WARNING] Failed to process pending writes: {e}")
 
     def load_jobs(self, input_file: str) -> List[Dict[str, Any]]:
         """
@@ -270,6 +286,14 @@ class JobMatcherPipeline:
                         job[field] = list(job[field]) if job[field] is not None else []
                     except (TypeError, ValueError):
                         job[field] = []
+
+        # Convert timestamp fields to ISO strings for JSON serialization
+        timestamp_fields = ['first_seen', 'last_seen']
+        for job in jobs:
+            for field in timestamp_fields:
+                if field in job and job[field] is not None:
+                    if hasattr(job[field], 'isoformat'):
+                        job[field] = job[field].isoformat()
 
         return jobs
 
@@ -485,15 +509,20 @@ class JobMatcherPipeline:
         Returns:
             Path to saved JSON file (for report generation)
         """
-        # Update match results in DuckDB
+        # Update match results in DuckDB using batch operation
         print("\nUpdating match results in database...")
-        updated_count = 0
+
+        # Prepare jobs for batch update
+        jobs_to_update = []
         for job in jobs:
             job_url = job.get("job_url")
             if not job_url:
                 continue
 
             match_score = job.get("match_score")
+            if match_score is None:
+                continue
+
             match_explanation = job.get("match_explanation", "")
             is_relevant = job.get("is_relevant", True)
             gap_analysis = job.get("gap_analysis")
@@ -505,18 +534,18 @@ class JobMatcherPipeline:
             if isinstance(resume_suggestions, dict):
                 resume_suggestions = json.dumps(resume_suggestions)
 
-            if match_score is not None:
-                self.storage.update_match_results(
-                    job_url=job_url,
-                    match_score=match_score,
-                    match_explanation=match_explanation,
-                    is_relevant=is_relevant,
-                    gap_analysis=gap_analysis,
-                    resume_suggestions=resume_suggestions
-                )
-                updated_count += 1
+            jobs_to_update.append({
+                "job_url": job_url,
+                "match_score": match_score,
+                "match_explanation": match_explanation,
+                "is_relevant": is_relevant,
+                "gap_analysis": gap_analysis,
+                "resume_suggestions": resume_suggestions,
+            })
 
-        print(f"Updated {updated_count} jobs in database")
+        # Batch update all jobs
+        result = self.storage.update_match_results_batch(jobs_to_update)
+        print(f"Updated {result['updated']} jobs in database ({result.get('failed', 0)} failed)")
 
         # Also save to JSON file for report generation and backward compatibility
         if not output_file:
@@ -661,14 +690,9 @@ class JobMatcherPipeline:
         if not jobs:
             return
 
-        for job in jobs:
-            self.tracker.add_job(
-                job_url=job.get("job_url", ""),
-                job_title=job.get("title", "Unknown"),
-                company=job.get("company", "Unknown"),
-                location=job.get("location", "Unknown"),
-                match_score=job.get("match_score", default_score),
-            )
+        # Use batch operation to minimize DB lock contention
+        result = self.tracker.add_jobs_batch(jobs, default_score=default_score)
+        print(f"   Tracker updated: {result['inserted']} new, {result['updated']} updated")
 
     def generate_report(
         self, jobs: List[Dict[str, Any]], report_title: Optional[str] = None, source_file: Optional[str] = None
@@ -1032,6 +1056,12 @@ class JobMatcherPipeline:
                     df = self.storage.load_matched_jobs(source, min_score or self.min_score)
                     if df is not None and not df.empty:
                         matched_jobs = df.to_dict("records")
+                        # Convert timestamp fields to ISO strings for JSON serialization
+                        for job in matched_jobs:
+                            for field in ['first_seen', 'last_seen']:
+                                if field in job and job[field] is not None:
+                                    if hasattr(job[field], 'isoformat'):
+                                        job[field] = job[field].isoformat()
                     else:
                         # Fallback to JSON file if DB is empty
                         matched_file = f"data/jobs_{source}_matched_{datetime.now().strftime('%Y%m%d')}_*.json"

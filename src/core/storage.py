@@ -112,6 +112,360 @@ class JobStorage:
             "source": source,
         }
 
+    def save_jobs_batch(
+        self,
+        jobs: List[JobPost],
+        source: str = "indeed",
+    ) -> Dict[str, Any]:
+        """
+        Save job postings to DuckDB using TRUE batch operations for better performance.
+
+        This method uses a single database connection for all operations,
+        avoiding the overhead of opening/closing connections for each job.
+        If batch operations fail, records are saved to pending files for later retry.
+
+        Args:
+            jobs: List of JobPost objects to save
+            source: Job source identifier (default: "indeed")
+
+        Returns:
+            Dictionary with save statistics
+        """
+        if not jobs:
+            return {"saved": 0, "updated": 0, "total": 0, "source": source}
+
+        from src.core.pending_writes import get_pending_manager
+
+        now = datetime.now()
+        job_dicts = [job.to_dict() for job in jobs]
+
+        # Filter out jobs without URLs
+        job_dicts = [j for j in job_dicts if j.get("job_url")]
+        if not job_dicts:
+            return {"saved": 0, "updated": 0, "total": 0, "source": source}
+
+        try:
+            # Use batch context - single connection for ALL operations
+            with self.db.batch_context() as batch:
+                # Get existing URLs in one query
+                job_urls = [j["job_url"] for j in job_dicts]
+                placeholders = ",".join(["?" for _ in job_urls])
+                existing_result = batch.fetchall(
+                    f"SELECT job_url FROM jobs WHERE job_url IN ({placeholders})",
+                    tuple(job_urls)
+                )
+                existing_urls = {row[0] for row in existing_result}
+
+                # Separate new vs existing jobs
+                new_jobs = [j for j in job_dicts if j["job_url"] not in existing_urls]
+                existing_jobs = [j for j in job_dicts if j["job_url"] in existing_urls]
+
+                saved_count = 0
+                updated_count = 0
+
+                # Batch insert new jobs using single connection
+                for job_dict in new_jobs:
+                    try:
+                        self._insert_job_with_batch(batch, job_dict, source, now)
+                        saved_count += 1
+                    except Exception as e:
+                        print(f"[WARNING] Failed to insert job {job_dict.get('job_url', 'unknown')}: {e}")
+
+                # Batch update existing jobs using single connection
+                for job_dict in existing_jobs:
+                    try:
+                        self._update_job_with_batch(batch, job_dict, source, now)
+                        updated_count += 1
+                    except Exception as e:
+                        print(f"[WARNING] Failed to update job {job_dict.get('job_url', 'unknown')}: {e}")
+
+            total = saved_count + updated_count
+            print(f"[SUCCESS] Batch saved {saved_count} new jobs, updated {updated_count} existing ({total} total)")
+
+            return {
+                "saved": saved_count,
+                "updated": updated_count,
+                "total": total,
+                "source": source,
+            }
+
+        except Exception as e:
+            print(f"[ERROR] Batch save failed: {e}")
+            # Fallback to pending writes
+            pending_manager = get_pending_manager()
+            pending_manager.save_pending(job_dicts, "save_jobs", source)
+            return {
+                "saved": 0,
+                "updated": 0,
+                "total": 0,
+                "source": source,
+                "pending": len(job_dicts),
+                "error": str(e),
+            }
+
+    def _batch_insert_jobs(
+        self,
+        job_dicts: List[Dict[str, Any]],
+        source: str,
+        timestamp: datetime,
+    ) -> int:
+        """Batch insert multiple new jobs."""
+        if not job_dicts:
+            return 0
+
+        # Build multi-row INSERT
+        # For simplicity and reliability, we'll use parameterized individual inserts
+        # wrapped in a single lock acquisition (the DB manager handles this)
+        count = 0
+        for job_dict in job_dicts:
+            try:
+                self._insert_job(job_dict, source, timestamp)
+                count += 1
+            except Exception as e:
+                print(f"[WARNING] Failed to insert job {job_dict.get('job_url', 'unknown')}: {e}")
+        return count
+
+    def _batch_update_jobs(
+        self,
+        job_dicts: List[Dict[str, Any]],
+        source: str,
+        timestamp: datetime,
+    ) -> int:
+        """Batch update multiple existing jobs."""
+        if not job_dicts:
+            return 0
+
+        count = 0
+        for job_dict in job_dicts:
+            try:
+                self._update_job(job_dict, source, timestamp)
+                count += 1
+            except Exception as e:
+                print(f"[WARNING] Failed to update job {job_dict.get('job_url', 'unknown')}: {e}")
+        return count
+
+    def _insert_job_with_batch(self, batch, job_dict: Dict[str, Any], source: str, timestamp: datetime):
+        """Insert a new job using a batch context (reuses single connection)."""
+        skills = job_dict.get("skills") or []
+        requirements = job_dict.get("requirements") or []
+        benefits = job_dict.get("benefits") or []
+        work_arrangements = job_dict.get("work_arrangements") or []
+
+        batch.execute("""
+            INSERT INTO jobs (
+                job_url, source, title, company, location, site, description,
+                job_type, date_posted, salary_min, salary_max, salary_currency,
+                salary_period, company_url, company_industry, remote,
+                skills, requirements, benefits, work_arrangements,
+                location_country_code, location_country_name, location_city,
+                location_state, location_postal_code,
+                company_size, company_revenue, company_description, company_ceo,
+                company_website, company_logo_url, company_header_image_url,
+                work_schedule, detailed_salary, source_site, tracking_key, date_on_site,
+                glassdoor_listing_id, glassdoor_tracking_key, glassdoor_job_link,
+                easy_apply, occupation_code, occupation_id, occupation_confidence,
+                company_full_name, company_short_name, company_division,
+                company_rating, company_glassdoor_id, salary_source,
+                is_sponsored, sponsorship_level, location_id, location_country_id,
+                first_seen, last_seen
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?,
+                ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?,
+                ?, ?, ?, ?, ?,
+                ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?, ?,
+                ?, ?, ?,
+                ?, ?, ?, ?,
+                ?, ?
+            )
+        """, (
+            job_dict.get("job_url"),
+            source,
+            job_dict.get("title"),
+            job_dict.get("company"),
+            job_dict.get("location"),
+            job_dict.get("site"),
+            job_dict.get("description"),
+            job_dict.get("job_type"),
+            job_dict.get("date_posted"),
+            _clean_value(job_dict.get("salary_min")),
+            _clean_value(job_dict.get("salary_max")),
+            job_dict.get("salary_currency"),
+            job_dict.get("salary_period"),
+            job_dict.get("company_url"),
+            job_dict.get("company_industry"),
+            job_dict.get("remote"),
+            skills,
+            requirements,
+            benefits,
+            work_arrangements,
+            job_dict.get("location_country_code"),
+            job_dict.get("location_country_name"),
+            job_dict.get("location_city"),
+            job_dict.get("location_state"),
+            job_dict.get("location_postal_code"),
+            job_dict.get("company_size"),
+            job_dict.get("company_revenue"),
+            job_dict.get("company_description"),
+            job_dict.get("company_ceo"),
+            job_dict.get("company_website"),
+            job_dict.get("company_logo_url"),
+            job_dict.get("company_header_image_url"),
+            job_dict.get("work_schedule"),
+            job_dict.get("detailed_salary"),
+            job_dict.get("source_site"),
+            job_dict.get("tracking_key"),
+            job_dict.get("date_on_site"),
+            _clean_int(job_dict.get("glassdoor_listing_id")),
+            job_dict.get("glassdoor_tracking_key"),
+            job_dict.get("glassdoor_job_link"),
+            job_dict.get("easy_apply"),
+            job_dict.get("occupation_code"),
+            _clean_int(job_dict.get("occupation_id")),
+            _clean_value(job_dict.get("occupation_confidence")),
+            job_dict.get("company_full_name"),
+            job_dict.get("company_short_name"),
+            job_dict.get("company_division"),
+            _clean_value(job_dict.get("company_rating")),
+            _clean_int(job_dict.get("company_glassdoor_id")),
+            job_dict.get("salary_source"),
+            job_dict.get("is_sponsored"),
+            job_dict.get("sponsorship_level"),
+            _clean_int(job_dict.get("location_id")),
+            _clean_int(job_dict.get("location_country_id")),
+            timestamp,
+            timestamp,
+        ))
+
+    def _update_job_with_batch(self, batch, job_dict: Dict[str, Any], source: str, timestamp: datetime):
+        """Update an existing job using a batch context (reuses single connection)."""
+        skills = job_dict.get("skills") or []
+        requirements = job_dict.get("requirements") or []
+        benefits = job_dict.get("benefits") or []
+        work_arrangements = job_dict.get("work_arrangements") or []
+
+        batch.execute("""
+            UPDATE jobs SET
+                source = ?,
+                title = ?,
+                company = ?,
+                location = ?,
+                site = ?,
+                description = ?,
+                job_type = ?,
+                date_posted = ?,
+                salary_min = ?,
+                salary_max = ?,
+                salary_currency = ?,
+                salary_period = ?,
+                company_url = ?,
+                company_industry = ?,
+                remote = ?,
+                skills = ?,
+                requirements = ?,
+                benefits = ?,
+                work_arrangements = ?,
+                location_country_code = ?,
+                location_country_name = ?,
+                location_city = ?,
+                location_state = ?,
+                location_postal_code = ?,
+                company_size = ?,
+                company_revenue = ?,
+                company_description = ?,
+                company_ceo = ?,
+                company_website = ?,
+                company_logo_url = ?,
+                company_header_image_url = ?,
+                work_schedule = ?,
+                detailed_salary = ?,
+                source_site = ?,
+                tracking_key = ?,
+                date_on_site = ?,
+                glassdoor_listing_id = ?,
+                glassdoor_tracking_key = ?,
+                glassdoor_job_link = ?,
+                easy_apply = ?,
+                occupation_code = ?,
+                occupation_id = ?,
+                occupation_confidence = ?,
+                company_full_name = ?,
+                company_short_name = ?,
+                company_division = ?,
+                company_rating = ?,
+                company_glassdoor_id = ?,
+                salary_source = ?,
+                is_sponsored = ?,
+                sponsorship_level = ?,
+                location_id = ?,
+                location_country_id = ?,
+                last_seen = ?
+            WHERE job_url = ?
+        """, (
+            source,
+            job_dict.get("title"),
+            job_dict.get("company"),
+            job_dict.get("location"),
+            job_dict.get("site"),
+            job_dict.get("description"),
+            job_dict.get("job_type"),
+            job_dict.get("date_posted"),
+            _clean_value(job_dict.get("salary_min")),
+            _clean_value(job_dict.get("salary_max")),
+            job_dict.get("salary_currency"),
+            job_dict.get("salary_period"),
+            job_dict.get("company_url"),
+            job_dict.get("company_industry"),
+            job_dict.get("remote"),
+            skills,
+            requirements,
+            benefits,
+            work_arrangements,
+            job_dict.get("location_country_code"),
+            job_dict.get("location_country_name"),
+            job_dict.get("location_city"),
+            job_dict.get("location_state"),
+            job_dict.get("location_postal_code"),
+            job_dict.get("company_size"),
+            job_dict.get("company_revenue"),
+            job_dict.get("company_description"),
+            job_dict.get("company_ceo"),
+            job_dict.get("company_website"),
+            job_dict.get("company_logo_url"),
+            job_dict.get("company_header_image_url"),
+            job_dict.get("work_schedule"),
+            job_dict.get("detailed_salary"),
+            job_dict.get("source_site"),
+            job_dict.get("tracking_key"),
+            job_dict.get("date_on_site"),
+            _clean_int(job_dict.get("glassdoor_listing_id")),
+            job_dict.get("glassdoor_tracking_key"),
+            job_dict.get("glassdoor_job_link"),
+            job_dict.get("easy_apply"),
+            job_dict.get("occupation_code"),
+            _clean_int(job_dict.get("occupation_id")),
+            _clean_value(job_dict.get("occupation_confidence")),
+            job_dict.get("company_full_name"),
+            job_dict.get("company_short_name"),
+            job_dict.get("company_division"),
+            _clean_value(job_dict.get("company_rating")),
+            _clean_int(job_dict.get("company_glassdoor_id")),
+            job_dict.get("salary_source"),
+            job_dict.get("is_sponsored"),
+            job_dict.get("sponsorship_level"),
+            _clean_int(job_dict.get("location_id")),
+            _clean_int(job_dict.get("location_country_id")),
+            timestamp,
+            job_dict.get("job_url"),
+        ))
+
     def _insert_job(self, job_dict: Dict[str, Any], source: str, timestamp: datetime):
         """Insert a new job into the database"""
         # Prepare values - convert lists to proper format for DuckDB
@@ -601,6 +955,82 @@ class JobStorage:
         ))
 
         return True
+
+    def update_match_results_batch(
+        self,
+        jobs: List[Dict[str, Any]],
+    ) -> Dict[str, int]:
+        """
+        Batch update match results for multiple jobs.
+
+        This method reduces database lock contention by checking for existing
+        jobs once and performing updates in sequence. If batch operations fail,
+        records are saved to pending files for later retry.
+
+        Args:
+            jobs: List of job dicts with keys:
+                - job_url: The job URL (required)
+                - match_score: Match score (0-100)
+                - match_explanation: Explanation of the match
+                - is_relevant: Whether the job is relevant
+                - gap_analysis: Optional gap analysis text
+                - resume_suggestions: Optional resume suggestions
+
+        Returns:
+            Dict with counts: {"updated": N, "failed": M}
+        """
+        if not jobs:
+            return {"updated": 0, "failed": 0}
+
+        from src.core.pending_writes import get_pending_manager
+
+        updated = 0
+        failed = 0
+        failed_jobs = []
+
+        try:
+            for job in jobs:
+                job_url = job.get("job_url")
+                if not job_url:
+                    failed += 1
+                    continue
+
+                try:
+                    self.db.execute("""
+                        UPDATE jobs SET
+                            match_score = ?,
+                            match_explanation = ?,
+                            is_relevant = ?,
+                            gap_analysis = ?,
+                            resume_suggestions = ?
+                        WHERE job_url = ?
+                    """, (
+                        job.get("match_score"),
+                        job.get("match_explanation"),
+                        job.get("is_relevant"),
+                        job.get("gap_analysis"),
+                        job.get("resume_suggestions"),
+                        job_url,
+                    ))
+                    updated += 1
+                except Exception as e:
+                    print(f"[WARNING] Failed to update match results for {job_url}: {e}")
+                    failed += 1
+                    failed_jobs.append(job)
+
+            # Save failed jobs to pending if any
+            if failed_jobs:
+                pending_manager = get_pending_manager()
+                pending_manager.save_pending(failed_jobs, "update_match_results")
+
+            return {"updated": updated, "failed": failed}
+
+        except Exception as e:
+            print(f"[ERROR] Batch update match results failed: {e}")
+            # Fallback: save all remaining jobs to pending
+            pending_manager = get_pending_manager()
+            pending_manager.save_pending(jobs, "update_match_results")
+            return {"updated": updated, "failed": len(jobs) - updated, "error": str(e)}
 
     def get_job(self, job_url: str) -> Optional[Dict[str, Any]]:
         """

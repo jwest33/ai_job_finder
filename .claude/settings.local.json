@@ -4,7 +4,9 @@
       "Bash(tree:*)",
       "Bash(ls:*)",
       "Bash(Select-String \"ACTIVE_PROFILE\")",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(dir /B /A)",
+      "Bash(dir /B \"D:\\\\models\\\\OmniParser-v2.0\")"
     ]
   }
 }

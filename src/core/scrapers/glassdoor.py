@@ -35,6 +35,7 @@ from ..config import (
     DEFAULT_PROXIES,
 )
 from ..utils import create_session
+from ..rate_limiter import get_shared_rate_limiter, get_request_semaphore
 from .base import BaseScraper
 
 
@@ -46,6 +47,10 @@ class GlassdoorScraper(BaseScraper):
         self.api_url = GLASSDOOR_API_URL
         self.api_headers = GLASSDOOR_API_HEADERS.copy()
         self.base_url = "https://www.glassdoor.com"
+
+        # Store proxy settings (base class doesn't expose these as attributes)
+        self.proxies = proxies or []
+        self.use_proxies = use_proxies
 
         # Pagination settings
         self.jobs_per_page = 30
@@ -60,9 +65,32 @@ class GlassdoorScraper(BaseScraper):
         self.context = None
         self.page = None
         self._stealth_ctx = None  # Store stealth context manager
+        self._needs_browser_restart = False  # Flag for session rotation
+        self._proxy_session_id = self._generate_session_id()  # Initial proxy session
 
         # CSRF token (will be fetched on first scrape)
         self.csrf_token = None
+
+        # Use SHARED rate limiter across all Glassdoor scraper instances
+        # This ensures concurrent searches don't overwhelm the API
+        self.rate_limiter = get_shared_rate_limiter(
+            "glassdoor",
+            base_delay=5.0,              # Start with 5 seconds between pages
+            min_delay=3.0,               # Never go below 3 seconds
+            max_delay=10.0,              # Cap at 10 seconds (user requested)
+            velocity_window=60.0,        # Track requests per minute
+            velocity_max_requests=5,     # Max 5 requests per minute (conservative)
+            circuit_breaker_threshold=3, # Trip after 3 consecutive 429s
+            circuit_breaker_reset_time=10.0,  # Circuit breaker uses max_delay
+            jitter_std_ratio=0.25,       # 25% standard deviation for jitter
+        )
+
+        # Register this instance's session rotation callback
+        self.rate_limiter.register_session_rotate_callback(self._rotate_session)
+
+        # Get the global semaphore for serializing Glassdoor requests
+        # This ensures only one Glassdoor API call happens at a time across all scrapers
+        self._request_semaphore = get_request_semaphore("glassdoor")
 
     @staticmethod
     def _generate_session_id(length: int = 10) -> str:
@@ -76,6 +104,25 @@ class GlassdoorScraper(BaseScraper):
             Random alphanumeric session ID
         """
         return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
+
+    def _rotate_session(self) -> None:
+        """
+        Rotate session to get a fresh IP and browser state.
+
+        Called by rate limiter when circuit breaker trips.
+        This helps evade rate limiting by appearing as a new user.
+        """
+        print("[INFO] Rotating session (new proxy IP + clearing browser state)...")
+
+        # Generate new proxy session ID for IP rotation
+        self._proxy_session_id = self._generate_session_id()
+
+        # Clear CSRF token to force re-fetch with new session
+        self.csrf_token = None
+
+        # Schedule browser restart (will happen on next _ensure_browser call)
+        # We can't do async cleanup here since this is called from sync context
+        self._needs_browser_restart = True
 
     def _build_session_proxy(self, base_proxy_url: str, session_id: Optional[str] = None) -> str:
         """
@@ -113,38 +160,132 @@ class GlassdoorScraper(BaseScraper):
         else:
             return base_proxy_url
 
+    def _get_current_proxy(self) -> Optional[dict]:
+        """
+        Get the current proxy configuration for Playwright.
+
+        Returns:
+            Proxy dict for Playwright or None if no proxy configured
+        """
+        if not self.use_proxies or not self.proxies:
+            return None
+
+        # Get base proxy URL
+        base_proxy = self.proxies[0] if self.proxies else None
+        if not base_proxy:
+            return None
+
+        # Build proxy with session ID for IP rotation
+        proxy_url = self._build_session_proxy(base_proxy, self._proxy_session_id)
+
+        # Parse proxy URL for Playwright format
+        # Format: http://username:password@host:port
+        try:
+            if "@" in proxy_url:
+                protocol_and_auth, host_port = proxy_url.rsplit("@", 1)
+                protocol, auth = protocol_and_auth.split("://", 1)
+                username, password = auth.split(":", 1)
+
+                return {
+                    "server": f"{protocol}://{host_port}",
+                    "username": username,
+                    "password": password,
+                }
+            else:
+                return {"server": proxy_url}
+        except Exception as e:
+            print(f"[WARNING] Failed to parse proxy URL: {e}")
+            return None
+
     async def _ensure_browser(self) -> Page:
         """
-        Ensure Playwright browser is running with stealth mode
+        Ensure Playwright browser is running with stealth mode and proxy
 
         Returns:
             Playwright Page object
         """
+        # Check if session rotation requested a browser restart
+        if self._needs_browser_restart and self.page:
+            print("[INFO] Restarting browser for session rotation...")
+            await self._close_browser()
+            self._needs_browser_restart = False
+
         if self.page and not self.page.is_closed():
             return self.page
 
-        # Start Playwright with stealth context manager
+        # Start Playwright - skip stealth (requires bundled browser), use normal mode
         if not self.playwright:
-            # Create and enter stealth context manager
-            self._stealth_ctx = Stealth().use_async(async_playwright())
-            self.playwright = await self._stealth_ctx.__aenter__()
+            print("[INFO] Starting Playwright...")
+            self._stealth_ctx = None
+            self.playwright = await async_playwright().start()
 
-        # Launch browser
+        # Launch browser - try system Chrome first
         if not self.browser:
-            self.browser = await self.playwright.chromium.launch(
-                headless=True,  # Set to False for debugging
-                args=[
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-dev-shm-usage',
-                    '--no-sandbox',
-                ]
-            )
+            browser_launched = False
 
-        # Create context
-        self.context = await self.browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
+            # Try Chrome
+            try:
+                print("[INFO] Trying system Chrome...")
+                self.browser = await self.playwright.chromium.launch(
+                    headless=True,
+                    channel="chrome",
+                    args=[
+                        '--disable-blink-features=AutomationControlled',
+                        '--disable-dev-shm-usage',
+                        '--no-sandbox',
+                    ]
+                )
+                print("[OK] Using system Chrome")
+                browser_launched = True
+            except Exception as e:
+                print(f"[INFO] Chrome not available: {e}")
+
+            # Try Edge
+            if not browser_launched:
+                try:
+                    print("[INFO] Trying MS Edge...")
+                    self.browser = await self.playwright.chromium.launch(
+                        headless=True,
+                        channel="msedge",
+                        args=[
+                            '--disable-blink-features=AutomationControlled',
+                            '--disable-dev-shm-usage',
+                            '--no-sandbox',
+                        ]
+                    )
+                    print("[OK] Using MS Edge")
+                    browser_launched = True
+                except Exception as e:
+                    print(f"[INFO] Edge not available: {e}")
+
+            # Try bundled Chromium (requires playwright install)
+            if not browser_launched:
+                print("[INFO] Trying bundled Chromium...")
+                self.browser = await self.playwright.chromium.launch(
+                    headless=True,
+                    args=[
+                        '--disable-blink-features=AutomationControlled',
+                        '--disable-dev-shm-usage',
+                        '--no-sandbox',
+                    ]
+                )
+                print("[OK] Using bundled Chromium")
+
+        # Get proxy configuration with current session ID
+        proxy_config = self._get_current_proxy()
+
+        # Create context with proxy if available
+        context_options = {
+            "viewport": {"width": 1920, "height": 1080},
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+
+        if proxy_config:
+            context_options["proxy"] = proxy_config
+            if os.getenv("DEBUG", "false").lower() == "true":
+                print(f"[INFO] Using proxy with session: {self._proxy_session_id}")
+
+        self.context = await self.browser.new_context(**context_options)
 
         # Create page - stealth is automatically applied!
         self.page = await self.context.new_page()
@@ -235,6 +376,12 @@ class GlassdoorScraper(BaseScraper):
         jobs = []
 
         try:
+            # Use the shared rate limiter's delay which accounts for all concurrent scrapers
+            delay = self.rate_limiter.get_delay()
+            if delay > 0:
+                print(f"[RATE] Pre-search delay: {delay:.1f}s (shared limiter)")
+                await asyncio.sleep(delay)
+
             print(f"[INFO] Scraping Glassdoor for '{search_term}' in '{location}'...")
 
             # Get CSRF token
@@ -270,8 +417,11 @@ class GlassdoorScraper(BaseScraper):
                 cursor_type = "cursor-based" if (cursor and not cursor.startswith("__page_")) else "page-based"
                 print(f"[INFO] Fetching page {page_num}/{range_end - 1} ({cursor_type} pagination)")
 
+                # Track request timing for response time heuristic
+                request_start = time.time()
+
                 # Fetch jobs for this page
-                page_jobs, cursor = await self._fetch_jobs_page(
+                page_jobs, cursor, was_rate_limited = await self._fetch_jobs_page(
                     search_term=search_term,
                     location_id=location_id,
                     location_type=location_type,
@@ -279,6 +429,16 @@ class GlassdoorScraper(BaseScraper):
                     cursor=cursor,
                     hours_old=hours_old,
                 )
+
+                response_time_ms = (time.time() - request_start) * 1000
+
+                # Update rate limiter based on result
+                if was_rate_limited:
+                    # Rate limiter already handled in _make_graphql_request
+                    # but we track the overall page failure here
+                    pass
+                elif page_jobs:
+                    self.rate_limiter.on_success(response_time_ms)
 
                 if not page_jobs:
                     print(f"[INFO] No jobs returned for page {page_num}")
@@ -303,13 +463,13 @@ class GlassdoorScraper(BaseScraper):
                     print("[INFO] No more pages available (no cursor returned)")
                     break
 
-                # Rate limiting - use longer delay for Glassdoor to avoid 429 errors
-                # Glassdoor is more aggressive with rate limiting than other sites
-                glassdoor_delay = max(RATE_LIMIT_DELAY, 5.0)  # Minimum 5 seconds between pages
-                print(f"[INFO] Waiting {glassdoor_delay}s before next page...")
-                await asyncio.sleep(glassdoor_delay)
+                # Use adaptive rate limiter for delay
+                delay = self.rate_limiter.get_delay()
+                print(f"[RATE] Waiting {delay:.1f}s before next page (base: {self.rate_limiter.current_delay:.1f}s)...")
+                await asyncio.sleep(delay)
 
             print(f"[SUCCESS] Successfully scraped {len(jobs)} jobs from Glassdoor")
+            print(f"[RATE] {self.rate_limiter.get_stats_summary()}")
             return jobs[:results_wanted]
 
         finally:
@@ -323,6 +483,8 @@ class GlassdoorScraper(BaseScraper):
         Returns:
             CSRF token string or None if failed
         """
+        # Acquire semaphore to serialize requests
+        self._request_semaphore.acquire()
         try:
             page = await self._ensure_browser()
 
@@ -433,6 +595,8 @@ class GlassdoorScraper(BaseScraper):
         except Exception as e:
             print(f"[ERROR] Error fetching CSRF token: {e}")
             return None
+        finally:
+            self._request_semaphore.release()
 
     async def _get_location_id(self, location: str, is_remote: Optional[bool] = None) -> Tuple[Optional[int], Optional[str]]:
         """
@@ -445,10 +609,12 @@ class GlassdoorScraper(BaseScraper):
         Returns:
             Tuple of (location_id, location_type) or (None, None) if failed
         """
-        # Handle remote/no location
+        # Handle remote/no location (no API call needed)
         if not location or is_remote or location.lower() == "remote":
             return 11047, "STATE"  # Remote location ID
 
+        # Acquire semaphore for API call
+        self._request_semaphore.acquire()
         try:
             page = await self._ensure_browser()
 
@@ -509,6 +675,8 @@ class GlassdoorScraper(BaseScraper):
         except Exception as e:
             print(f"[ERROR] Error resolving location: {e}")
             return None, None
+        finally:
+            self._request_semaphore.release()
 
     async def _fetch_jobs_page(
         self,
@@ -518,7 +686,7 @@ class GlassdoorScraper(BaseScraper):
         page_num: int,
         cursor: Optional[str] = None,
         hours_old: Optional[int] = None,
-    ) -> Tuple[List[JobPost], Optional[str]]:
+    ) -> Tuple[List[JobPost], Optional[str], bool]:
         """
         Fetch a single page of jobs from Glassdoor
 
@@ -531,10 +699,14 @@ class GlassdoorScraper(BaseScraper):
             hours_old: Filter for jobs posted within X hours
 
         Returns:
-            Tuple of (job list, next cursor)
+            Tuple of (job list, next cursor, was_rate_limited)
         """
         jobs = []
+        was_rate_limited = False
 
+        # Acquire semaphore to serialize requests across all Glassdoor scrapers
+        # This prevents concurrent scrapers from overwhelming the API
+        self._request_semaphore.acquire()
         try:
             # Build GraphQL payload
             payload = self._build_graphql_payload(
@@ -546,18 +718,18 @@ class GlassdoorScraper(BaseScraper):
                 hours_old=hours_old,
             )
 
-            # Make GraphQL request
-            response_data = await self._make_graphql_request(payload)
+            # Make GraphQL request (returns data, was_rate_limited)
+            response_data, was_rate_limited = await self._make_graphql_request(payload)
 
             if not response_data:
-                return jobs, None
+                return jobs, None, was_rate_limited
 
             # Extract job listings
             job_listings_data = response_data.get("data", {}).get("jobListings", {})
             job_listings = job_listings_data.get("jobListings", [])
 
             if not job_listings:
-                return jobs, None
+                return jobs, None, was_rate_limited
 
             # Process jobs sequentially (async)
             for job_data in job_listings:
@@ -591,11 +763,14 @@ class GlassdoorScraper(BaseScraper):
                 # The scraper will use page numbers instead
                 next_cursor = f"__page_{page_num + 1}__"
 
-            return jobs, next_cursor
+            return jobs, next_cursor, was_rate_limited
 
         except Exception as e:
             print(f"[ERROR] Error fetching jobs page: {e}")
-            return jobs, None
+            return jobs, None, was_rate_limited
+        finally:
+            # Always release the semaphore
+            self._request_semaphore.release()
 
     def _build_graphql_payload(
         self,
@@ -654,17 +829,24 @@ class GlassdoorScraper(BaseScraper):
 
         return json.dumps([payload])
 
-    async def _make_graphql_request(self, payload: str, retry_count: int = 0, max_retries: int = 3) -> Optional[Dict]:
+    async def _make_graphql_request(
+        self,
+        payload: str,
+        retry_count: int = 0,
+        max_retries: int = 3,
+        _encountered_rate_limit: bool = False,
+    ) -> Tuple[Optional[Dict], bool]:
         """
-        Make a GraphQL API request using Playwright browser context with retry logic
+        Make a GraphQL API request using Playwright browser context with adaptive retry logic
 
         Args:
             payload: JSON payload string
             retry_count: Current retry attempt (internal use)
             max_retries: Maximum number of retries for rate limiting
+            _encountered_rate_limit: Internal flag tracking if we hit 429 at any point
 
         Returns:
-            Parsed JSON response or None on failure
+            Tuple of (Parsed JSON response or None, was_rate_limited)
         """
         try:
             page = await self._ensure_browser()
@@ -713,23 +895,37 @@ class GlassdoorScraper(BaseScraper):
 
             if status == 200:
                 body = api_result.get("body", "")
-                return json.loads(body)[0]  # Glassdoor returns array
+                return json.loads(body)[0], _encountered_rate_limit  # Glassdoor returns array
             elif status == 429 and retry_count < max_retries:
-                # Rate limited - implement exponential backoff
-                wait_time = (2 ** retry_count) * 5  # 5s, 10s, 20s
-                print(f"[WARNING] Rate limited (429). Retrying in {wait_time}s (attempt {retry_count + 1}/{max_retries})...")
+                # Use adaptive rate limiter for wait time
+                wait_time = self.rate_limiter.on_rate_limit()
+                print(f"[RATE] Rate limited (429). Waiting {wait_time:.1f}s before retry {retry_count + 1}/{max_retries}...")
                 await asyncio.sleep(wait_time)
-                # Retry with incremented counter
-                return await self._make_graphql_request(payload, retry_count + 1, max_retries)
+
+                # Check if circuit breaker tripped (need longer wait)
+                circuit_open, circuit_wait = self.rate_limiter._check_circuit_breaker()
+                if circuit_open:
+                    print(f"[RATE] Circuit breaker open. Additional wait: {circuit_wait:.0f}s")
+                    await asyncio.sleep(circuit_wait)
+
+                # Retry with incremented counter, mark that we encountered rate limit
+                return await self._make_graphql_request(
+                    payload, retry_count + 1, max_retries, _encountered_rate_limit=True
+                )
+            elif status == 429:
+                # Max retries exceeded
+                self.rate_limiter.on_rate_limit()
+                print(f"[ERROR] Rate limit persists after {max_retries} retries")
+                return None, True
             else:
                 print(f"[ERROR] API request failed with status {status}")
                 if os.getenv("DEBUG", "false").lower() == "true":
                     print(f"Response: {api_result.get('body', 'N/A')[:200]}")
-                return None
+                return None, _encountered_rate_limit
 
         except Exception as e:
             print(f"[ERROR] Error making API request: {e}")
-            return None
+            return None, _encountered_rate_limit
 
     def _get_cursor_for_page(self, pagination_cursors: List[Dict], page_num: int) -> Optional[str]:
         """
@@ -1058,6 +1254,12 @@ class GlassdoorScraper(BaseScraper):
 
     def close(self):
         """Close browser and cleanup resources"""
+        # Unregister session rotation callback from shared rate limiter
+        try:
+            self.rate_limiter.unregister_session_rotate_callback(self._rotate_session)
+        except Exception:
+            pass
+
         if self.browser or self.playwright:
             try:
                 asyncio.run(self._close_browser())

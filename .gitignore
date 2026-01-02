@@ -56,3 +56,5 @@ __pycache__/
 # Profiles and user data
 profiles/
 conversations/
+
+node_modules/

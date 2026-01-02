@@ -107,6 +107,18 @@ async def lifespan(app: FastAPI):
         logger.warning("Auth is enabled but no token configured!")
         logger.warning("Generate one with: python -c \"from mcp_server.auth import MCPAuth; print(MCPAuth.generate_token())\"")
 
+    # Process any pending database writes from previous failed saves
+    try:
+        from src.core.pending_writes import get_pending_manager
+        pending_manager = get_pending_manager()
+        stats = pending_manager.get_pending_stats()
+        if stats["file_count"] > 0:
+            logger.info(f"Found {stats['file_count']} pending write files ({stats['total_records']} records)")
+            result = pending_manager.process_pending()
+            logger.info(f"Processed pending writes: {result['processed']} records, {result['failed']} failed")
+    except Exception as e:
+        logger.warning(f"Failed to process pending writes: {e}")
+
     yield
 
     # Shutdown

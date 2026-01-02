@@ -22,5 +22,3 @@ INFO:     ::1:61394 - "GET /api/v1/scraper/match/c9fdf515-7f40-4da0-9a9d-347d057
    [Batch 36/143] Complete
    [Batch 37/143] Processing jobs 145-148 of 570...
 ```
-
-2) 'Job Description' on the job card should be formatted as markdown
