@@ -25,11 +25,30 @@ logger = logging.getLogger(__name__)
 # Glassdoor search URL template
 GLASSDOOR_BASE_URL = "https://www.glassdoor.com/Job/jobs.htm"
 
-# Singleton browser instance for Glassdoor (only one browser at a time)
-_glassdoor_browser_lock = threading.Lock()
-_glassdoor_browser: Optional[Browser] = None
-_glassdoor_playwright = None
-_glassdoor_context: Optional[BrowserContext] = None
+# Global lock to ensure only one Glassdoor scrape runs at a time
+# Playwright doesn't work across threads, so we serialize all Glassdoor operations
+_glassdoor_scrape_lock = threading.Lock()
+
+# VLM recovery prompt for handling unexpected popups/modals
+VLM_RECOVERY_PROMPT = """You are looking at a Glassdoor job search page that has an unexpected popup, modal, or overlay blocking the content.
+
+Your task: Identify and dismiss any popup, modal, or overlay that is blocking the job listings.
+
+Common popups to look for:
+- "Sign up for job alerts" modal - click X or "No thanks" or click outside
+- "Create account" popup - click X or dismiss button
+- Cookie consent banner - click "Accept" or X
+- Email signup overlay - click X or "Skip"
+- Any modal with a close button (X) in the corner
+
+Actions to try:
+1. Look for an X button or close icon on the popup
+2. Look for "No thanks", "Skip", "Close", or "Dismiss" buttons
+3. Try clicking outside the modal to dismiss it
+4. Press Escape key if nothing else works
+
+After dismissing the popup, the job listings should be visible again.
+Do NOT click on job listings or navigate away - just dismiss the blocking element."""
 
 
 def build_glassdoor_search_url(search_term: str, location: str) -> str:
@@ -41,63 +60,9 @@ def build_glassdoor_search_url(search_term: str, location: str) -> str:
     return f"{GLASSDOOR_BASE_URL}?{urlencode(params)}"
 
 
-def get_singleton_browser() -> Tuple[Browser, BrowserContext, Page]:
-    """
-    Get or create the singleton Glassdoor browser.
-
-    Returns:
-        Tuple of (browser, context, page)
-    """
-    global _glassdoor_browser, _glassdoor_playwright, _glassdoor_context
-
-    with _glassdoor_browser_lock:
-        if _glassdoor_browser is None or not _glassdoor_browser.is_connected():
-            print("[VLM] Creating singleton Glassdoor browser...", flush=True)
-            _glassdoor_playwright = sync_playwright().start()
-            _glassdoor_browser = _glassdoor_playwright.chromium.launch(
-                headless=False,
-                args=[
-                    "--start-maximized",
-                    "--disable-blink-features=AutomationControlled",
-                ]
-            )
-            _glassdoor_context = _glassdoor_browser.new_context(
-                no_viewport=True,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            )
-
-        # Create new page in existing context
-        page = _glassdoor_context.new_page()
-        return _glassdoor_browser, _glassdoor_context, page
-
-
 def close_singleton_browser():
-    """Close the singleton browser."""
-    global _glassdoor_browser, _glassdoor_playwright, _glassdoor_context
-
-    with _glassdoor_browser_lock:
-        if _glassdoor_context:
-            try:
-                _glassdoor_context.close()
-            except:
-                pass
-            _glassdoor_context = None
-
-        if _glassdoor_browser:
-            try:
-                _glassdoor_browser.close()
-            except:
-                pass
-            _glassdoor_browser = None
-
-        if _glassdoor_playwright:
-            try:
-                _glassdoor_playwright.stop()
-            except:
-                pass
-            _glassdoor_playwright = None
-
-        print("[VLM] Singleton browser closed", flush=True)
+    """No-op for compatibility - browser is now closed after each scrape."""
+    pass
 
 
 class GlassdoorVLMScraper(BaseScraper):
@@ -117,6 +82,7 @@ class GlassdoorVLMScraper(BaseScraper):
         self.browser: Optional[Browser] = None
         self.page: Optional[Page] = None
         self._context: Optional[BrowserContext] = None
+        self._playwright = None
         self.vlm_agent = None
         self.vlm_available = False
 
@@ -139,11 +105,24 @@ class GlassdoorVLMScraper(BaseScraper):
             return False
 
     def _start_browser(self) -> bool:
-        """Get or create the singleton browser for Glassdoor."""
+        """Start Playwright browser for this scrape session."""
         try:
-            self.browser, self._context, self.page = get_singleton_browser()
-            logger.info("Browser page created successfully")
-            print("[VLM] Browser page ready", flush=True)
+            print("[VLM] Creating browser...", flush=True)
+            self._playwright = sync_playwright().start()
+            self.browser = self._playwright.chromium.launch(
+                headless=False,
+                args=[
+                    "--start-maximized",
+                    "--disable-blink-features=AutomationControlled",
+                ]
+            )
+            self._context = self.browser.new_context(
+                no_viewport=True,
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            )
+            self.page = self._context.new_page()
+            logger.info("Browser started successfully")
+            print("[VLM] Browser ready", flush=True)
             return True
         except Exception as e:
             logger.error(f"Failed to start browser: {e}")
@@ -187,15 +166,36 @@ class GlassdoorVLMScraper(BaseScraper):
             print(f"[VLM] Could not maximize browser: {e}", flush=True)
 
     def _stop_browser(self):
-        """Close the current page (browser stays open for reuse)."""
+        """Close the browser and all resources."""
         try:
             if self.page:
                 self.page.close()
-                print("[VLM] Page closed (browser remains open for reuse)", flush=True)
         except:
             pass
-        finally:
-            self.page = None
+
+        try:
+            if self._context:
+                self._context.close()
+        except:
+            pass
+
+        try:
+            if self.browser:
+                self.browser.close()
+        except:
+            pass
+
+        try:
+            if self._playwright:
+                self._playwright.stop()
+        except:
+            pass
+
+        self.page = None
+        self._context = None
+        self.browser = None
+        self._playwright = None
+        print("[VLM] Browser closed", flush=True)
 
     def _wait_for_page_load(self, timeout: int = 15000):
         """
@@ -367,6 +367,191 @@ class GlassdoorVLMScraper(BaseScraper):
                 print(f"[VLM] Error: {e}", flush=True)
 
         print("[VLM] Failed to solve captcha after all attempts", flush=True)
+        return False
+
+    def _detect_blocking_popup(self) -> bool:
+        """
+        Detect if there's a popup/modal blocking the job listings.
+
+        Returns:
+            True if a blocking popup is detected
+        """
+        try:
+            # Common popup/modal selectors on Glassdoor
+            popup_selectors = [
+                '[data-test="modal"]',
+                '[class*="modal"]',
+                '[class*="Modal"]',
+                '[class*="overlay"]',
+                '[class*="Overlay"]',
+                '[role="dialog"]',
+                '[aria-modal="true"]',
+                '.hardsellOverlay',
+                '#HardsellOverlay',
+                '[class*="SignUp"]',
+                '[class*="signUp"]',
+                '[class*="jobAlert"]',
+                '[class*="JobAlert"]',
+            ]
+
+            for selector in popup_selectors:
+                try:
+                    element = self.page.query_selector(selector)
+                    if element and element.is_visible():
+                        print(f"[VLM] Detected blocking popup: {selector}", flush=True)
+                        return True
+                except:
+                    continue
+
+            return False
+
+        except Exception as e:
+            logger.debug(f"Error detecting popup: {e}")
+            return False
+
+    def _try_dismiss_popup_dom(self) -> bool:
+        """
+        Try to dismiss popups using DOM selectors (faster than VLM).
+
+        Returns:
+            True if a popup was dismissed
+        """
+        print("[VLM] Attempting to dismiss popup via DOM...", flush=True)
+
+        # Common close button selectors
+        close_selectors = [
+            'button[aria-label="Close"]',
+            'button[aria-label="close"]',
+            '[data-test="close-button"]',
+            '[data-test="modal-close"]',
+            '.modal-close',
+            '.close-button',
+            'button.close',
+            '[class*="closeButton"]',
+            '[class*="CloseButton"]',
+            '[class*="dismiss"]',
+            'button:has-text("No thanks")',
+            'button:has-text("No Thanks")',
+            'button:has-text("Skip")',
+            'button:has-text("Close")',
+            'button:has-text("Dismiss")',
+            'button:has-text("Not now")',
+            'button:has-text("Maybe later")',
+            # X button patterns
+            'button[class*="close"] svg',
+            '[role="dialog"] button:first-child',
+        ]
+
+        for selector in close_selectors:
+            try:
+                element = self.page.query_selector(selector)
+                if element and element.is_visible():
+                    print(f"[VLM] Clicking close button: {selector}", flush=True)
+                    element.click()
+                    time.sleep(1)
+
+                    # Check if popup is gone
+                    if not self._detect_blocking_popup():
+                        print("[VLM] Popup dismissed successfully via DOM", flush=True)
+                        return True
+            except:
+                continue
+
+        # Try pressing Escape key
+        try:
+            print("[VLM] Trying Escape key to dismiss popup...", flush=True)
+            self.page.keyboard.press("Escape")
+            time.sleep(1)
+
+            if not self._detect_blocking_popup():
+                print("[VLM] Popup dismissed via Escape key", flush=True)
+                return True
+        except:
+            pass
+
+        # Try clicking outside the modal (on the overlay)
+        try:
+            overlay_selectors = [
+                '[class*="overlay"]',
+                '[class*="Overlay"]',
+                '.modal-backdrop',
+            ]
+            for selector in overlay_selectors:
+                overlay = self.page.query_selector(selector)
+                if overlay and overlay.is_visible():
+                    print(f"[VLM] Clicking overlay to dismiss: {selector}", flush=True)
+                    # Click at the edge of the overlay
+                    box = overlay.bounding_box()
+                    if box:
+                        self.page.mouse.click(box['x'] + 10, box['y'] + 10)
+                        time.sleep(1)
+
+                        if not self._detect_blocking_popup():
+                            print("[VLM] Popup dismissed by clicking overlay", flush=True)
+                            return True
+        except:
+            pass
+
+        print("[VLM] DOM-based popup dismissal failed", flush=True)
+        return False
+
+    def _recover_with_vlm(self) -> bool:
+        """
+        Use VLM to recover from unexpected state (popups, modals, etc).
+
+        Returns:
+            True if recovery was successful
+        """
+        print("[VLM] Initiating VLM recovery for blocking element...", flush=True)
+
+        # Initialize VLM if needed
+        if not self._init_vlm_agent():
+            print("[VLM] Could not initialize VLM for recovery", flush=True)
+            return False
+
+        # Focus browser for VLM
+        self._maximize_and_focus_browser()
+        time.sleep(1)
+
+        try:
+            # Run VLM with recovery prompt
+            result = self.vlm_agent.run(
+                task=VLM_RECOVERY_PROMPT,
+                max_actions=10,
+            )
+            print(f"[VLM] Recovery result: {result}", flush=True)
+
+            # Wait for action to take effect
+            time.sleep(2)
+
+            # Check if popup is gone
+            if not self._detect_blocking_popup():
+                print("[VLM] VLM successfully dismissed blocking element", flush=True)
+                return True
+            else:
+                print("[VLM] VLM recovery did not dismiss blocking element", flush=True)
+                return False
+
+        except Exception as e:
+            logger.error(f"VLM recovery error: {e}")
+            print(f"[VLM] Recovery error: {e}", flush=True)
+            return False
+
+    def _handle_blocking_popup(self) -> bool:
+        """
+        Handle a blocking popup - try DOM first, then VLM.
+
+        Returns:
+            True if popup was handled
+        """
+        # First try DOM-based dismissal (faster)
+        if self._try_dismiss_popup_dom():
+            return True
+
+        # Fall back to VLM if DOM didn't work
+        if self.vlm_available:
+            return self._recover_with_vlm()
+
         return False
 
     def _check_search_complete(self) -> bool:
@@ -669,11 +854,20 @@ class GlassdoorVLMScraper(BaseScraper):
         return None, None
 
     def _go_to_next_page(self) -> bool:
-        """Navigate to the next page of results."""
+        """Navigate to the next page of results with popup recovery."""
         try:
             # Get current job count before pagination
             current_count = len(self.page.query_selector_all('[data-test="jobListing"]'))
             print(f"[VLM] Current job count before pagination: {current_count}", flush=True)
+
+            # Check for blocking popup before attempting pagination
+            if self._detect_blocking_popup():
+                print("[VLM] Blocking popup detected before pagination", flush=True)
+                if self._handle_blocking_popup():
+                    print("[VLM] Popup handled, continuing with pagination", flush=True)
+                else:
+                    print("[VLM] Could not dismiss popup, aborting pagination", flush=True)
+                    return False
 
             # Try clicking pagination buttons first
             next_selectors = [
@@ -694,6 +888,11 @@ class GlassdoorVLMScraper(BaseScraper):
                         # Wait for page to load new content
                         self._wait_for_page_load(timeout=10000)
 
+                        # Check for popup that may have appeared after click
+                        if self._detect_blocking_popup():
+                            print("[VLM] Popup appeared after pagination click", flush=True)
+                            self._handle_blocking_popup()
+
                         new_count = len(self.page.query_selector_all('[data-test="jobListing"]'))
                         print(f"[VLM] Job count after pagination: {new_count}", flush=True)
 
@@ -706,7 +905,9 @@ class GlassdoorVLMScraper(BaseScraper):
             show_more_selectors = [
                 'button[data-test="load-more"]',
                 'button:has-text("Show more jobs")',
+                'button:has-text("Show More Jobs")',
                 '[class*="showMore"]',
+                '[class*="ShowMore"]',
             ]
 
             for selector in show_more_selectors:
@@ -715,7 +916,14 @@ class GlassdoorVLMScraper(BaseScraper):
                     if show_more and show_more.is_visible():
                         print(f"[VLM] Clicking show more: {selector}", flush=True)
                         show_more.click()
-                        time.sleep(3)  # Wait for new jobs to load
+                        time.sleep(2)
+
+                        # Check for popup that may have appeared after click
+                        if self._detect_blocking_popup():
+                            print("[VLM] Popup appeared after 'Show more' click", flush=True)
+                            if self._handle_blocking_popup():
+                                # After dismissing popup, wait a bit more for jobs to load
+                                time.sleep(2)
 
                         new_count = len(self.page.query_selector_all('[data-test="jobListing"]'))
                         if new_count > current_count:
@@ -726,14 +934,46 @@ class GlassdoorVLMScraper(BaseScraper):
 
             # Try scrolling to load more (infinite scroll)
             print("[VLM] Trying infinite scroll...", flush=True)
-            for _ in range(3):  # Try scrolling a few times
+            stuck_count = 0
+            max_stuck = 3
+
+            for scroll_attempt in range(5):  # More scroll attempts
                 self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 time.sleep(2)
+
+                # Check for popup after scroll
+                if self._detect_blocking_popup():
+                    print("[VLM] Popup appeared during scroll", flush=True)
+                    if self._handle_blocking_popup():
+                        stuck_count = 0  # Reset stuck counter after successful recovery
+                        continue
 
                 new_count = len(self.page.query_selector_all('[data-test="jobListing"]'))
                 if new_count > current_count:
                     print(f"[VLM] Loaded more jobs via scroll: {current_count} -> {new_count}", flush=True)
                     return True
+                else:
+                    stuck_count += 1
+                    print(f"[VLM] No new jobs after scroll (stuck count: {stuck_count}/{max_stuck})", flush=True)
+
+                    if stuck_count >= max_stuck:
+                        # We're stuck - check if there's a hidden popup blocking us
+                        print("[VLM] Stuck in scroll loop, checking for hidden blockers...", flush=True)
+
+                        # Try recovery even if we don't detect a popup (it might be invisible)
+                        if self.vlm_available:
+                            print("[VLM] Using VLM to check for and resolve any blockers...", flush=True)
+                            self._recover_with_vlm()
+                            stuck_count = 0  # Give it another chance
+
+                            # Check if we can now load more
+                            self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                            time.sleep(2)
+                            final_count = len(self.page.query_selector_all('[data-test="jobListing"]'))
+                            if final_count > current_count:
+                                print(f"[VLM] Recovery successful, loaded more jobs: {current_count} -> {final_count}", flush=True)
+                                return True
+                        break
 
             print("[VLM] No more pages available", flush=True)
             return False
@@ -777,13 +1017,12 @@ class GlassdoorVLMScraper(BaseScraper):
             logger.error(f"Fallback also failed: {e}")
             return []
 
-    def close(self, close_browser: bool = False):
+    def close(self, close_browser: bool = True):
         """
         Clean up resources.
 
         Args:
-            close_browser: If True, close the singleton browser entirely.
-                          If False (default), only close the current page.
+            close_browser: Kept for API compatibility, always closes browser.
         """
         self._stop_browser()
         if self.vlm_agent:
@@ -792,8 +1031,5 @@ class GlassdoorVLMScraper(BaseScraper):
             except:
                 pass
             self.vlm_agent = None
-
-        if close_browser:
-            close_singleton_browser()
 
         super().close()

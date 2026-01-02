@@ -13,8 +13,8 @@ from typing import Optional
 class LlamaServerConfig:
     """Configuration for llama-server."""
     executable: str = "llama-server"
-    model_path: str = r"D:\models\gemma-3-12b-it\gguf\gemma-3-12b-it-q8_0.gguf"
-    mmproj_path: str = r"D:\models\gemma-3-12b-it\gguf\mmproj-gemma-3-12b-it-f16.gguf"
+    model_path: str = r"D:\models\gemma-3-27b-it\gemma-3-27b-it-UD-Q6_K_XL.gguf"
+    mmproj_path: str = r"D:\models\gemma-3-27b-it\mmproj-BF16.gguf"
     host: str = "127.0.0.1"
     port: int = 8080
     context_size: int = 65536

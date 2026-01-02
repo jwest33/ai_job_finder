@@ -49,6 +49,7 @@ assets/
 # Database files
 *.db
 *.db-journal
+backup/
 
 .venv/
 __pycache__/

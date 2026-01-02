@@ -131,8 +131,10 @@ def _scrape_single_search(source: str, job_title: str, location: str, results_pe
 
 def _run_full_search_pipeline(task_id: str, params, profile_name: str):
     """
-    Run all searches in parallel using ThreadPoolExecutor, collect results in memory,
-    then batch write to database.
+    Run searches with proper handling:
+    - Indeed and other scrapers run in parallel (ThreadPoolExecutor)
+    - Glassdoor runs sequentially (Playwright doesn't support multi-threading)
+    Then batch write all results to database.
     """
     import os
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -149,42 +151,74 @@ def _run_full_search_pipeline(task_id: str, params, profile_name: str):
     if use_proxy:
         print(f"[DEBUG] Using proxy: {proxy_url[:50]}..." if proxy_url else "[DEBUG] Proxy enabled but no PROXY_URL set")
 
-    # Build list of all searches to run
-    searches = []
+    # Separate searches into parallel (Indeed, etc.) and sequential (Glassdoor)
+    parallel_searches = []
+    glassdoor_searches = []
+
     for job_title in params.jobs:
         for location in params.locations:
             for source in params.scrapers:
-                searches.append((source, job_title, location))
+                if source.lower() == "glassdoor":
+                    glassdoor_searches.append((source, job_title, location))
+                else:
+                    parallel_searches.append((source, job_title, location))
 
-    total_searches = len(searches)
+    total_searches = len(parallel_searches) + len(glassdoor_searches)
     update_task(task_id, progress={
         "current": 0,
         "total": total_searches,
-        "message": f"Starting {total_searches} parallel searches..."
+        "message": f"Starting {total_searches} searches ({len(parallel_searches)} parallel, {len(glassdoor_searches)} sequential)..."
     })
 
-    # Run all searches in parallel, collect results in memory
     all_jobs = []  # List of (source, JobPost) tuples
     completed = 0
 
-    # Use up to 4 workers for parallel scraping
-    max_workers = min(4, total_searches)
+    # Run parallel searches (Indeed, etc.) with ThreadPoolExecutor
+    if parallel_searches:
+        max_workers = min(4, len(parallel_searches))
+        print(f"[INFO] Running {len(parallel_searches)} parallel searches with {max_workers} workers")
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_search = {
-            executor.submit(
-                _scrape_single_search,
-                source, job_title, location, params.results_per_search, proxies, use_proxy
-            ): (source, job_title, location)
-            for source, job_title, location in searches
-        }
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_search = {
+                executor.submit(
+                    _scrape_single_search,
+                    source, job_title, location, params.results_per_search, proxies, use_proxy
+                ): (source, job_title, location)
+                for source, job_title, location in parallel_searches
+            }
 
-        for future in as_completed(future_to_search):
-            source, job_title, location = future_to_search[future]
+            for future in as_completed(future_to_search):
+                source, job_title, location = future_to_search[future]
+                completed += 1
+
+                try:
+                    jobs = future.result()
+                    all_jobs.extend(jobs)
+                    print(f"[INFO] {source}/{job_title}/{location}: found {len(jobs)} jobs")
+                except Exception as e:
+                    print(f"[ERROR] {source}/{job_title}/{location}: {e}")
+
+                update_task(task_id, progress={
+                    "current": completed,
+                    "total": total_searches,
+                    "message": f"Completed {completed}/{total_searches} searches ({len(all_jobs)} jobs found)"
+                })
+
+    # Run Glassdoor searches SEQUENTIALLY (Playwright doesn't support multi-threading)
+    if glassdoor_searches:
+        print(f"[INFO] Running {len(glassdoor_searches)} Glassdoor searches sequentially")
+
+        for source, job_title, location in glassdoor_searches:
             completed += 1
 
+            update_task(task_id, progress={
+                "current": completed,
+                "total": total_searches,
+                "message": f"Glassdoor: searching '{job_title}' in '{location}'..."
+            })
+
             try:
-                jobs = future.result()
+                jobs = _scrape_single_search(source, job_title, location, params.results_per_search, proxies, use_proxy)
                 all_jobs.extend(jobs)
                 print(f"[INFO] {source}/{job_title}/{location}: found {len(jobs)} jobs")
             except Exception as e:
@@ -195,6 +229,13 @@ def _run_full_search_pipeline(task_id: str, params, profile_name: str):
                 "total": total_searches,
                 "message": f"Completed {completed}/{total_searches} searches ({len(all_jobs)} jobs found)"
             })
+
+        # Clean up Glassdoor browser after all Glassdoor searches
+        try:
+            from src.core.scraper import cleanup_glassdoor_browser
+            cleanup_glassdoor_browser()
+        except:
+            pass
 
     # Batch write all jobs to database by source
     update_task(task_id, progress={
