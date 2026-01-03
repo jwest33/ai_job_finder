@@ -24,7 +24,7 @@ export function LoadingPage({ message = 'Loading...' }: LoadingPageProps) {
   return (
     <div className="flex flex-col items-center justify-center h-64">
       <LoadingSpinner size="lg" />
-      <p className="mt-4 text-gray-500">{message}</p>
+      <p className="mt-4 text-gray-500 dark:text-gray-400">{message}</p>
     </div>
   );
 }

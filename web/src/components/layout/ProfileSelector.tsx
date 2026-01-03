@@ -62,25 +62,25 @@ export function ProfileSelector() {
     <div ref={dropdownRef} className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
         disabled={isLoading}
       >
-        <span className="text-sm font-medium text-gray-700">
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
           {activeProfile?.name || 'Loading...'}
         </span>
-        <ChevronDown className={clsx('w-4 h-4 text-gray-500 transition-transform', isOpen && 'rotate-180')} />
+        <ChevronDown className={clsx('w-4 h-4 text-gray-500 dark:text-gray-400 transition-transform', isOpen && 'rotate-180')} />
       </button>
 
       {isOpen && profiles && (
-        <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+        <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-50">
           {profiles.map((profile) => (
             <button
               key={profile.name}
               onClick={() => switchMutation.mutate(profile.name)}
-              className="w-full flex items-center justify-between px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              className="w-full flex items-center justify-between px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
             >
               <span>{profile.name}</span>
-              {profile.is_active && <Check className="w-4 h-4 text-blue-600" />}
+              {profile.is_active && <Check className="w-4 h-4 text-blue-600 dark:text-blue-400" />}
             </button>
           ))}
         </div>

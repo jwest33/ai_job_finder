@@ -108,6 +108,11 @@ export interface JobStats {
   medium_matches: number;
   low_matches: number;
   by_source: Record<string, number>;
+  thresholds: {
+    excellent: number;
+    good: number;
+    fair: number;
+  };
 }
 
 export interface PaginatedResponse<T> {

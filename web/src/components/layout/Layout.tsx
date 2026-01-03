@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useEffect } from 'react';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { useUiStore } from '../../store/uiStore';
@@ -10,9 +10,19 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const sidebarOpen = useUiStore((state) => state.sidebarOpen);
+  const darkMode = useUiStore((state) => state.darkMode);
+
+  // Apply dark class to document root
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [darkMode]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       <Header />
       <div className="flex">
         <Sidebar />

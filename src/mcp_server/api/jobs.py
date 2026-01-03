@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 
 from src.core.database import get_database
 from src.utils.profile_manager import ProfilePaths
+from src.ai import load_threshold_settings
 
 router = APIRouter()
 
@@ -110,6 +111,8 @@ class JobStatsResponse(BaseModel):
     medium_matches: int
     low_matches: int
     by_source: dict
+    # Thresholds used for calculating matches
+    thresholds: dict = {"excellent": 80, "good": 60, "fair": 40}
 
 
 class SourceCount(BaseModel):
@@ -279,29 +282,30 @@ async def get_jobs(
 def _fetch_stats_sync():
     """Synchronous helper to fetch job stats. Runs in thread pool."""
     db = get_profile_database()
+    thresholds = load_threshold_settings()
 
-    stats = db.fetchone("""
+    stats = db.fetchone(f"""
         SELECT
             COUNT(*) as total_jobs,
             COUNT(match_score) as scored_jobs,
             COUNT(*) - COUNT(match_score) as unscored_jobs,
             COALESCE(AVG(match_score), 0) as avg_score,
-            COUNT(CASE WHEN match_score >= 80 THEN 1 END) as high_matches,
-            COUNT(CASE WHEN match_score >= 60 AND match_score < 80 THEN 1 END) as medium_matches,
-            COUNT(CASE WHEN match_score < 60 THEN 1 END) as low_matches
+            COUNT(CASE WHEN match_score >= {thresholds.excellent} THEN 1 END) as high_matches,
+            COUNT(CASE WHEN match_score >= {thresholds.good} AND match_score < {thresholds.excellent} THEN 1 END) as medium_matches,
+            COUNT(CASE WHEN match_score < {thresholds.good} THEN 1 END) as low_matches
         FROM jobs
     """)
 
     sources = db.fetchall("SELECT source, COUNT(*) as count FROM jobs GROUP BY source")
     by_source = {row[0]: row[1] for row in sources}
 
-    return stats, by_source
+    return stats, by_source, thresholds
 
 
 @router.get("/stats", response_model=JobStatsResponse)
 async def get_job_stats():
     """Get job statistics."""
-    stats, by_source = await asyncio.to_thread(_fetch_stats_sync)
+    stats, by_source, thresholds = await asyncio.to_thread(_fetch_stats_sync)
 
     # Clean avg_score in case of NaN
     avg_score = clean_float(stats[3])
@@ -317,6 +321,11 @@ async def get_job_stats():
         medium_matches=stats[5],
         low_matches=stats[6],
         by_source=by_source,
+        thresholds={
+            "excellent": thresholds.excellent,
+            "good": thresholds.good,
+            "fair": thresholds.fair,
+        },
     )
 
 

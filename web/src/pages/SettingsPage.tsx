@@ -137,6 +137,7 @@ export function SettingsPage() {
     mutationFn: (update: ThresholdSettingsUpdate) => aiApi.updateThresholds(update),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['threshold-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['job-stats'] });
       toast.success('Thresholds saved successfully');
       setHasUnsavedThresholds(false);
     },
@@ -150,6 +151,7 @@ export function SettingsPage() {
     mutationFn: () => aiApi.resetThresholds(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['threshold-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['job-stats'] });
       toast.success('Thresholds reset to defaults');
       setHasUnsavedThresholds(false);
     },
@@ -243,12 +245,12 @@ export function SettingsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">AI Settings</h1>
-          <p className="text-gray-500 mt-1">Configure your AI provider for job matching and analysis</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">AI Settings</h1>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">Configure your AI provider for job matching and analysis</p>
         </div>
         <div className="flex items-center gap-3">
           {hasUnsavedChanges && (
-            <span className="text-sm text-yellow-600">Unsaved changes</span>
+            <span className="text-sm text-yellow-600 dark:text-yellow-500">Unsaved changes</span>
           )}
           <Button
             variant="secondary"
@@ -276,8 +278,8 @@ export function SettingsPage() {
           className={clsx(
             'rounded-lg p-4 border',
             testResult.success
-              ? 'bg-green-50 border-green-200'
-              : 'bg-red-50 border-red-200'
+              ? 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800'
+              : 'bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-800'
           )}
         >
           <div className="flex items-center gap-2">
@@ -289,14 +291,14 @@ export function SettingsPage() {
             <span
               className={clsx(
                 'font-medium',
-                testResult.success ? 'text-green-700' : 'text-red-700'
+                testResult.success ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'
               )}
             >
               {testResult.success ? 'Connection Successful' : 'Connection Failed'}
             </span>
           </div>
           {testResult.success && (
-            <div className="mt-2 text-sm text-green-600 space-y-1">
+            <div className="mt-2 text-sm text-green-600 dark:text-green-400 space-y-1">
               <p>
                 Text Generation: {testResult.capabilities.text ? 'Available' : 'Not available'}
               </p>
@@ -309,7 +311,7 @@ export function SettingsPage() {
             </div>
           )}
           {testResult.error && (
-            <p className="mt-2 text-sm text-red-600">{testResult.error}</p>
+            <p className="mt-2 text-sm text-red-600 dark:text-red-400">{testResult.error}</p>
           )}
         </div>
       )}
@@ -318,18 +320,18 @@ export function SettingsPage() {
       {presets && presets.length > 0 && (
         <Card>
           <div className="flex items-center gap-2 mb-4">
-            <Server className="w-5 h-5 text-gray-500" />
-            <h2 className="text-lg font-semibold">Quick Setup</h2>
+            <Server className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Quick Setup</h2>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
             {presets.map((preset) => (
               <button
                 key={preset.id}
                 onClick={() => handlePresetClick(preset)}
-                className="p-3 border rounded-lg text-left hover:bg-gray-50 transition-colors"
+                className="p-3 border border-gray-200 dark:border-gray-700 rounded-lg text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
               >
-                <div className="font-medium text-sm">{preset.name}</div>
-                <div className="text-xs text-gray-500 mt-1 truncate">
+                <div className="font-medium text-sm text-gray-900 dark:text-white">{preset.name}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 truncate">
                   {preset.model}
                 </div>
               </button>
@@ -343,13 +345,13 @@ export function SettingsPage() {
         {/* Connection Settings */}
         <Card>
           <div className="flex items-center gap-2 mb-4">
-            <Cpu className="w-5 h-5 text-gray-500" />
-            <h2 className="text-lg font-semibold">Provider Settings</h2>
+            <Cpu className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Provider Settings</h2>
           </div>
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 API Endpoint
               </label>
               <input
@@ -360,15 +362,15 @@ export function SettingsPage() {
                   markChanged();
                 }}
                 placeholder="http://localhost:8080/v1"
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 OpenAI-compatible endpoint (e.g., llama-server, Ollama, OpenAI)
               </p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 API Key (optional)
               </label>
               <div className="relative">
@@ -380,12 +382,12 @@ export function SettingsPage() {
                     markChanged();
                   }}
                   placeholder={settings?.api_key ? '(unchanged)' : 'sk-...'}
-                  className="w-full px-3 py-2 pr-10 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
                 <button
                   type="button"
                   onClick={() => setShowApiKey(!showApiKey)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                 >
                   {showApiKey ? (
                     <EyeOff className="w-4 h-4" />
@@ -394,13 +396,13 @@ export function SettingsPage() {
                   )}
                 </button>
               </div>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 Required for cloud providers (OpenAI, Anthropic)
               </p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Model
               </label>
               <input
@@ -411,15 +413,15 @@ export function SettingsPage() {
                   markChanged();
                 }}
                 placeholder="default"
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 Model name/ID (e.g., gpt-4o, llama3.2, default)
               </p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Vision Model (optional)
               </label>
               <input
@@ -430,12 +432,12 @@ export function SettingsPage() {
                   markChanged();
                 }}
                 placeholder="(same as model)"
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
 
             <div className="flex items-center gap-3">
-              <label className="text-sm font-medium text-gray-700">Vision</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Vision</label>
               <div className="flex gap-2">
                 <button
                   onClick={() => {
@@ -445,8 +447,8 @@ export function SettingsPage() {
                   className={clsx(
                     'px-3 py-1 text-sm rounded-lg border',
                     visionEnabled === null
-                      ? 'bg-blue-100 border-blue-300 text-blue-700'
-                      : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                      ? 'bg-blue-100 dark:bg-blue-900/50 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
+                      : 'bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-600'
                   )}
                 >
                   Auto
@@ -459,8 +461,8 @@ export function SettingsPage() {
                   className={clsx(
                     'px-3 py-1 text-sm rounded-lg border',
                     visionEnabled === true
-                      ? 'bg-green-100 border-green-300 text-green-700'
-                      : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                      ? 'bg-green-100 dark:bg-green-900/50 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300'
+                      : 'bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-600'
                   )}
                 >
                   Enabled
@@ -473,8 +475,8 @@ export function SettingsPage() {
                   className={clsx(
                     'px-3 py-1 text-sm rounded-lg border',
                     visionEnabled === false
-                      ? 'bg-red-100 border-red-300 text-red-700'
-                      : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                      ? 'bg-red-100 dark:bg-red-900/50 border-red-300 dark:border-red-700 text-red-700 dark:text-red-300'
+                      : 'bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-600'
                   )}
                 >
                   Disabled
@@ -487,13 +489,13 @@ export function SettingsPage() {
         {/* Generation Settings */}
         <Card>
           <div className="flex items-center gap-2 mb-4">
-            <Settings className="w-5 h-5 text-gray-500" />
-            <h2 className="text-lg font-semibold">Generation Settings</h2>
+            <Settings className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Generation Settings</h2>
           </div>
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Temperature: {temperature.toFixed(2)}
               </label>
               <input
@@ -508,14 +510,14 @@ export function SettingsPage() {
                 }}
                 className="w-full"
               />
-              <div className="flex justify-between text-xs text-gray-500">
+              <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
                 <span>Precise (0)</span>
                 <span>Creative (2)</span>
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Max Tokens
               </label>
               <input
@@ -527,15 +529,15 @@ export function SettingsPage() {
                   setMaxTokens(parseInt(e.target.value) || 2048);
                   markChanged();
                 }}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 Maximum tokens to generate per response
               </p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Timeout (seconds)
               </label>
               <input
@@ -547,12 +549,12 @@ export function SettingsPage() {
                   setTimeout(parseInt(e.target.value) || 300);
                   markChanged();
                 }}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Max Concurrent Requests
               </label>
               <input
@@ -564,9 +566,9 @@ export function SettingsPage() {
                   setMaxConcurrent(parseInt(e.target.value) || 4);
                   markChanged();
                 }}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 Number of parallel requests during batch processing
               </p>
             </div>
@@ -578,12 +580,12 @@ export function SettingsPage() {
       <Card>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <Target className="w-5 h-5 text-gray-500" />
-            <h2 className="text-lg font-semibold">Match Quality Thresholds</h2>
+            <Target className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Match Quality Thresholds</h2>
           </div>
           <div className="flex items-center gap-3">
             {hasUnsavedThresholds && (
-              <span className="text-sm text-yellow-600">Unsaved changes</span>
+              <span className="text-sm text-yellow-600 dark:text-yellow-500">Unsaved changes</span>
             )}
             <Button
               size="sm"
@@ -597,13 +599,13 @@ export function SettingsPage() {
           </div>
         </div>
 
-        <p className="text-sm text-gray-500 mb-4">
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
           Configure score thresholds that determine job match quality ratings.
           Jobs are rated based on where their score falls relative to these thresholds.
         </p>
 
         {thresholdError && (
-          <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+          <div className="mb-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm">
             {thresholdError}
           </div>
         )}
@@ -612,7 +614,7 @@ export function SettingsPage() {
           {/* Excellent threshold */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium text-gray-700">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                 Excellent (Green)
               </label>
               <span className="text-sm font-mono bg-green-100 text-green-700 px-2 py-0.5 rounded">
@@ -630,7 +632,7 @@ export function SettingsPage() {
               }}
               className="w-full accent-green-500"
             />
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               Scores at or above this value are rated "Excellent"
             </p>
           </div>
@@ -638,7 +640,7 @@ export function SettingsPage() {
           {/* Good threshold */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium text-gray-700">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                 Good (Yellow)
               </label>
               <span className="text-sm font-mono bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded">
@@ -656,7 +658,7 @@ export function SettingsPage() {
               }}
               className="w-full accent-yellow-500"
             />
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               Scores at or above this value (but below Excellent) are rated "Good"
             </p>
           </div>
@@ -664,7 +666,7 @@ export function SettingsPage() {
           {/* Fair threshold */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium text-gray-700">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                 Fair (Orange)
               </label>
               <span className="text-sm font-mono bg-orange-100 text-orange-700 px-2 py-0.5 rounded">
@@ -682,15 +684,15 @@ export function SettingsPage() {
               }}
               className="w-full accent-orange-500"
             />
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               Scores at or above this value (but below Good) are rated "Fair"
             </p>
           </div>
 
           {/* Preview */}
-          <div className="pt-4 border-t">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">Preview</h3>
-            <div className="flex gap-4 text-sm">
+          <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Preview</h3>
+            <div className="flex gap-4 text-sm text-gray-700 dark:text-gray-300">
               <div className="flex items-center gap-2">
                 <span className="w-3 h-3 rounded-full bg-green-500" />
                 <span>Excellent: {excellentThreshold}-100</span>
@@ -712,10 +714,10 @@ export function SettingsPage() {
         </div>
 
         {/* Reset Thresholds */}
-        <div className="flex items-center justify-between mt-6 pt-4 border-t">
+        <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
           <div>
-            <h3 className="font-medium text-gray-900">Reset Thresholds</h3>
-            <p className="text-sm text-gray-500">
+            <h3 className="font-medium text-gray-900 dark:text-white">Reset Thresholds</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
               Restore default thresholds (80/60/40)
             </p>
           </div>
@@ -736,8 +738,8 @@ export function SettingsPage() {
       <Card>
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="font-medium text-gray-900">Reset AI Settings</h3>
-            <p className="text-sm text-gray-500">
+            <h3 className="font-medium text-gray-900 dark:text-white">Reset AI Settings</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
               Remove custom settings and revert to environment defaults
             </p>
           </div>
@@ -754,7 +756,7 @@ export function SettingsPage() {
       </Card>
 
       {/* Help Text */}
-      <div className="text-sm text-gray-500 space-y-2">
+      <div className="text-sm text-gray-500 dark:text-gray-400 space-y-2">
         <p>
           This app supports any OpenAI-compatible API. For local inference, use:
         </p>

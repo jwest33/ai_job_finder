@@ -17,20 +17,20 @@ interface StatCardProps {
 
 function StatCard({ title, value, icon, description, color = 'blue' }: StatCardProps) {
   const colors: Record<string, string> = {
-    blue: 'bg-blue-50 text-blue-600',
-    green: 'bg-green-50 text-green-600',
-    yellow: 'bg-yellow-50 text-yellow-600',
-    red: 'bg-red-50 text-red-600',
-    purple: 'bg-purple-50 text-purple-600',
+    blue: 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400',
+    green: 'bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400',
+    yellow: 'bg-yellow-50 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400',
+    red: 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400',
+    purple: 'bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400',
   };
 
   return (
     <Card>
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm font-medium text-gray-500">{title}</p>
-          <p className="mt-1 text-3xl font-bold text-gray-900">{value}</p>
-          {description && <p className="mt-1 text-sm text-gray-500">{description}</p>}
+          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{title}</p>
+          <p className="mt-1 text-3xl font-bold text-gray-900 dark:text-white">{value}</p>
+          {description && <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{description}</p>}
         </div>
         <div className={`p-3 rounded-lg ${colors[color]}`}>{icon}</div>
       </div>
@@ -57,8 +57,8 @@ export function DashboardPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-500 mt-1">Overview of your job search progress</p>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
+        <p className="text-gray-500 dark:text-gray-400 mt-1">Overview of your job search progress</p>
       </div>
 
       {/* Stats Grid */}
@@ -74,7 +74,7 @@ export function DashboardPage() {
           title="High Matches"
           value={jobStats?.high_matches || 0}
           icon={<Target className="w-6 h-6" />}
-          description="Score 80+"
+          description={`Score ${jobStats?.thresholds?.excellent || 80}+`}
           color="green"
         />
         <StatCard
@@ -109,7 +109,7 @@ export function DashboardPage() {
               <div className={`w-12 h-12 ${color} rounded-full flex items-center justify-center mx-auto text-white font-bold text-lg`}>
                 {appStats?.by_status?.[status as keyof typeof appStats.by_status] || 0}
               </div>
-              <p className="mt-2 text-sm font-medium text-gray-600">{label}</p>
+              <p className="mt-2 text-sm font-medium text-gray-600 dark:text-gray-400">{label}</p>
             </div>
           ))}
         </div>
@@ -121,16 +121,28 @@ export function DashboardPage() {
           <CardTitle>Score Distribution</CardTitle>
           <div className="space-y-4 mt-4">
             {[
-              { label: 'Excellent (80+)', value: jobStats?.high_matches || 0, color: 'bg-green-500' },
-              { label: 'Good (60-79)', value: jobStats?.medium_matches || 0, color: 'bg-yellow-500' },
-              { label: 'Low (<60)', value: jobStats?.low_matches || 0, color: 'bg-red-500' },
+              {
+                label: `Excellent (${jobStats?.thresholds?.excellent || 80}+)`,
+                value: jobStats?.high_matches || 0,
+                color: 'bg-green-500'
+              },
+              {
+                label: `Good (${jobStats?.thresholds?.good || 60}-${(jobStats?.thresholds?.excellent || 80) - 1})`,
+                value: jobStats?.medium_matches || 0,
+                color: 'bg-yellow-500'
+              },
+              {
+                label: `Low (<${jobStats?.thresholds?.good || 60})`,
+                value: jobStats?.low_matches || 0,
+                color: 'bg-red-500'
+              },
             ].map(({ label, value, color }) => (
               <div key={label}>
                 <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-600">{label}</span>
-                  <span className="font-medium">{value}</span>
+                  <span className="text-gray-600 dark:text-gray-400">{label}</span>
+                  <span className="font-medium text-gray-900 dark:text-white">{value}</span>
                 </div>
-                <div className="w-full h-2 bg-gray-200 rounded-full">
+                <div className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-full">
                   <div
                     className={`h-full ${color} rounded-full`}
                     style={{
@@ -147,39 +159,41 @@ export function DashboardPage() {
           <CardTitle>Quick Actions</CardTitle>
           <div className="space-y-3 mt-4">
             <Link
-              to="/jobs?min_score=80"
-              className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+              to={`/jobs?min_score=${jobStats?.thresholds?.excellent || 80}`}
+              className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
             >
-              <div className="p-2 bg-green-100 rounded-lg">
-                <Target className="w-5 h-5 text-green-600" />
+              <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
+                <Target className="w-5 h-5 text-green-600 dark:text-green-400" />
               </div>
               <div>
-                <p className="font-medium text-gray-900">View High Matches</p>
-                <p className="text-sm text-gray-500">{jobStats?.high_matches || 0} jobs with score 80+</p>
+                <p className="font-medium text-gray-900 dark:text-white">View High Matches</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {jobStats?.high_matches || 0} jobs with score {jobStats?.thresholds?.excellent || 80}+
+                </p>
               </div>
             </Link>
             <Link
               to="/search"
-              className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
             >
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <Briefcase className="w-5 h-5 text-blue-600" />
+              <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                <Briefcase className="w-5 h-5 text-blue-600 dark:text-blue-400" />
               </div>
               <div>
-                <p className="font-medium text-gray-900">New Job Search</p>
-                <p className="text-sm text-gray-500">Start scraping for new jobs</p>
+                <p className="font-medium text-gray-900 dark:text-white">New Job Search</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Start scraping for new jobs</p>
               </div>
             </Link>
             <Link
               to="/applications"
-              className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
             >
-              <div className="p-2 bg-purple-100 rounded-lg">
-                <Clock className="w-5 h-5 text-purple-600" />
+              <div className="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+                <Clock className="w-5 h-5 text-purple-600 dark:text-purple-400" />
               </div>
               <div>
-                <p className="font-medium text-gray-900">Track Applications</p>
-                <p className="text-sm text-gray-500">Manage your application pipeline</p>
+                <p className="font-medium text-gray-900 dark:text-white">Track Applications</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Manage your application pipeline</p>
               </div>
             </Link>
           </div>

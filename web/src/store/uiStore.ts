@@ -9,17 +9,29 @@ export interface Toast {
 
 interface UiState {
   sidebarOpen: boolean;
+  darkMode: boolean;
   toasts: Toast[];
 
   // Actions
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
+  toggleDarkMode: () => void;
+  setDarkMode: (dark: boolean) => void;
   addToast: (toast: Omit<Toast, 'id'>) => void;
   removeToast: (id: string) => void;
 }
 
+// Initialize dark mode from localStorage or system preference
+const getInitialDarkMode = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const stored = localStorage.getItem('darkMode');
+  if (stored !== null) return stored === 'true';
+  return window.matchMedia('(prefers-color-scheme: dark)').matches;
+};
+
 export const useUiStore = create<UiState>((set) => ({
   sidebarOpen: true,
+  darkMode: getInitialDarkMode(),
   toasts: [],
 
   toggleSidebar: () => {
@@ -28,6 +40,19 @@ export const useUiStore = create<UiState>((set) => ({
 
   setSidebarOpen: (open) => {
     set({ sidebarOpen: open });
+  },
+
+  toggleDarkMode: () => {
+    set((state) => {
+      const newValue = !state.darkMode;
+      localStorage.setItem('darkMode', String(newValue));
+      return { darkMode: newValue };
+    });
+  },
+
+  setDarkMode: (dark) => {
+    localStorage.setItem('darkMode', String(dark));
+    set({ darkMode: dark });
   },
 
   addToast: (toast) => {

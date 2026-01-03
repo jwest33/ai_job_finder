@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, FileText, Settings, CheckCircle, AlertCircle, Upload, Zap, ChevronDown, ChevronUp, Loader2, Code, FormInput } from 'lucide-react';
+import { Save, FileText, Settings, CheckCircle, AlertCircle, Upload, Loader2, Code, FormInput } from 'lucide-react';
 import { templatesApi } from '../api/templates';
 import { Card } from '../components/common/Card';
 import { Button } from '../components/common/Button';
@@ -8,163 +8,22 @@ import { LoadingPage } from '../components/common/LoadingSpinner';
 import { useToast } from '../store/uiStore';
 import { ResumeFormEditor } from '../components/templates/ResumeFormEditor';
 import { RequirementsFormEditor } from '../components/templates/RequirementsFormEditor';
-import type { ATSScoreResult, ATSCategoryResult } from '../types/template';
+import type { ATSScoreResult } from '../types/template';
 import clsx from 'clsx';
 
 type Tab = 'resume' | 'requirements';
 type ViewMode = 'form' | 'raw';
 
-const CATEGORY_LABELS: Record<string, string> = {
-  keywords: 'Keywords',
-  formatting: 'Formatting',
-  sections: 'Section Structure',
-  achievements: 'Achievements',
-  contact_info: 'Contact Info',
-  skills: 'Skills',
-};
-
-function getScoreColor(score: number): string {
-  if (score >= 90) return 'text-green-600';
-  if (score >= 70) return 'text-blue-600';
-  if (score >= 50) return 'text-yellow-600';
-  return 'text-red-600';
-}
-
-function getScoreBgColor(score: number): string {
-  if (score >= 90) return 'bg-green-500';
-  if (score >= 70) return 'bg-blue-500';
-  if (score >= 50) return 'bg-yellow-500';
-  return 'bg-red-500';
-}
-
-function ATSCategoryCard({ name, data }: { name: string; data: ATSCategoryResult }) {
-  const [expanded, setExpanded] = useState(false);
-  const hasIssues = data.issues.length > 0;
-  const hasRecommendations = data.recommendations.length > 0;
-
-  return (
-    <div className="border border-gray-200 rounded-lg overflow-hidden">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between p-3 hover:bg-gray-50"
-      >
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium text-gray-700">{CATEGORY_LABELS[name] || name}</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
-              <div
-                className={clsx('h-full rounded-full', getScoreBgColor(data.score))}
-                style={{ width: `${data.score}%` }}
-              />
-            </div>
-            <span className={clsx('text-sm font-bold w-8', getScoreColor(data.score))}>
-              {data.score}
-            </span>
-          </div>
-          {(hasIssues || hasRecommendations) && (
-            expanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />
-          )}
-        </div>
-      </button>
-      {expanded && (hasIssues || hasRecommendations) && (
-        <div className="px-3 pb-3 space-y-3">
-          {hasIssues && (
-            <div>
-              <h4 className="text-xs font-medium text-red-600 uppercase mb-1">Issues</h4>
-              <ul className="space-y-1">
-                {data.issues.map((issue, i) => (
-                  <li key={i} className="text-sm text-gray-600 flex items-start gap-2">
-                    <span className="text-red-400 mt-0.5">-</span>
-                    {issue}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {hasRecommendations && (
-            <div>
-              <h4 className="text-xs font-medium text-blue-600 uppercase mb-1">Recommendations</h4>
-              <ul className="space-y-1">
-                {data.recommendations.map((rec, i) => (
-                  <li key={i} className="text-sm text-gray-600 flex items-start gap-2">
-                    <span className="text-blue-400 mt-0.5">+</span>
-                    {rec}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ATSScorePanel({ score, onClose }: { score: ATSScoreResult; onClose: () => void }) {
-  return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
-      <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-        <h3 className="font-semibold text-gray-900">ATS Quality Score</h3>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">
-          &times;
-        </button>
-      </div>
-
-      <div className="p-4 space-y-4 max-h-[550px] overflow-y-auto">
-        {/* Overall Score */}
-        <div className="text-center py-4">
-          <div className={clsx('text-5xl font-bold', getScoreColor(score.overall_score))}>
-            {score.overall_score}
-          </div>
-          <div className="text-sm text-gray-500 mt-1">out of 100</div>
-        </div>
-
-        {/* Summary */}
-        <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg">
-          {score.summary}
-        </p>
-
-        {/* Category Breakdown */}
-        <div>
-          <h4 className="text-sm font-medium text-gray-700 mb-2">Category Scores</h4>
-          <div className="space-y-2">
-            {Object.entries(score.categories).map(([name, data]) => (
-              <ATSCategoryCard key={name} name={name} data={data} />
-            ))}
-          </div>
-        </div>
-
-        {/* Top Recommendations */}
-        {score.top_recommendations.length > 0 && (
-          <div>
-            <h4 className="text-sm font-medium text-gray-700 mb-2">Top Recommendations</h4>
-            <ul className="space-y-2">
-              {score.top_recommendations.map((rec, i) => (
-                <li key={i} className="text-sm text-gray-600 flex items-start gap-2 bg-blue-50 p-2 rounded">
-                  <span className="text-blue-500 font-bold">{i + 1}.</span>
-                  {rec}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function ViewModeToggle({ mode, onChange }: { mode: ViewMode; onChange: (mode: ViewMode) => void }) {
   return (
-    <div className="flex bg-gray-100 rounded-lg p-0.5">
+    <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
       <button
         onClick={() => onChange('form')}
         className={clsx(
           'flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
           mode === 'form'
-            ? 'bg-white text-gray-900 shadow-sm'
-            : 'text-gray-600 hover:text-gray-900'
+            ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+            : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
         )}
       >
         <FormInput className="w-4 h-4" />
@@ -175,8 +34,8 @@ function ViewModeToggle({ mode, onChange }: { mode: ViewMode; onChange: (mode: V
         className={clsx(
           'flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
           mode === 'raw'
-            ? 'bg-white text-gray-900 shadow-sm'
-            : 'text-gray-600 hover:text-gray-900'
+            ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+            : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
         )}
       >
         <Code className="w-4 h-4" />
@@ -188,7 +47,7 @@ function ViewModeToggle({ mode, onChange }: { mode: ViewMode; onChange: (mode: V
 
 export function TemplatesPage() {
   const [activeTab, setActiveTab] = useState<Tab>('resume');
-  const [viewMode, setViewMode] = useState<ViewMode>('form');
+  const [viewMode, setViewMode] = useState<ViewMode>('raw');
   const [resumeContent, setResumeContent] = useState('');
   const [requirementsContent, setRequirementsContent] = useState('');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -357,12 +216,12 @@ export function TemplatesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Templates</h1>
-          <p className="text-gray-500 mt-1">Edit your resume and job requirements</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Templates</h1>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">Edit your resume and job requirements</p>
         </div>
         <div className="flex items-center gap-3">
           {hasUnsavedChanges && (
-            <span className="text-sm text-yellow-600">Unsaved changes</span>
+            <span className="text-sm text-yellow-600 dark:text-yellow-500">Unsaved changes</span>
           )}
           <Button onClick={handleSave} disabled={!hasUnsavedChanges || isSaving} loading={isSaving}>
             <Save className="w-4 h-4 mr-2" />
@@ -372,15 +231,15 @@ export function TemplatesPage() {
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200">
+      <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="flex gap-4">
           <button
             onClick={() => setActiveTab('resume')}
             className={clsx(
               'flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors',
               activeTab === 'resume'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
             )}
           >
             <FileText className="w-4 h-4" />
@@ -398,8 +257,8 @@ export function TemplatesPage() {
             className={clsx(
               'flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors',
               activeTab === 'requirements'
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
             )}
           >
             <Settings className="w-4 h-4" />
@@ -417,81 +276,67 @@ export function TemplatesPage() {
 
       {/* Resume Upload Section - Only show on resume tab */}
       {activeTab === 'resume' && (
-        <div className="flex gap-4">
-          {/* Upload Zone */}
-          <div
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            className={clsx(
-              'flex-1 border-2 border-dashed rounded-lg p-4 cursor-pointer transition-colors',
-              isDragging
-                ? 'border-blue-500 bg-blue-50'
-                : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          className={clsx(
+            'border-2 border-dashed rounded-lg p-4 cursor-pointer transition-colors',
+            isDragging
+              ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30'
+              : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'
+          )}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".docx"
+            onChange={handleFileInputChange}
+            className="hidden"
+          />
+          <div className="flex items-center justify-center gap-3">
+            {isUploading ? (
+              <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
+            ) : (
+              <Upload className="w-5 h-5 text-gray-400" />
             )}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".docx"
-              onChange={handleFileInputChange}
-              className="hidden"
-            />
-            <div className="flex items-center justify-center gap-3">
-              {isUploading ? (
-                <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
-              ) : (
-                <Upload className="w-5 h-5 text-gray-400" />
-              )}
-              <span className="text-sm text-gray-600">
-                {isUploading
-                  ? 'Uploading and extracting text...'
-                  : 'Drop a .docx file here or click to upload'}
-              </span>
-            </div>
+            <span className="text-sm text-gray-600 dark:text-gray-400">
+              {isUploading
+                ? 'Uploading and extracting text...'
+                : 'Drop a .docx file here or click to upload'}
+            </span>
           </div>
-
-          {/* ATS Score Button */}
-          <Button
-            variant="secondary"
-            onClick={() => atsScoreMutation.mutate()}
-            disabled={isScoring || !resumeContent}
-            loading={isScoring}
-          >
-            <Zap className="w-4 h-4 mr-2" />
-            {isScoring ? 'Analyzing...' : 'ATS Score'}
-          </Button>
         </div>
       )}
 
       {/* Validation Status */}
       {currentValidation && !currentValidation.valid && currentValidation.errors && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex items-center gap-2 text-red-700 font-medium">
+        <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg p-4">
+          <div className="flex items-center gap-2 text-red-700 dark:text-red-300 font-medium">
             <AlertCircle className="w-5 h-5" />
             Validation Errors
           </div>
           <ul className="mt-2 space-y-1">
             {currentValidation.errors.map((error, i) => (
-              <li key={i} className="text-sm text-red-600">- {error}</li>
+              <li key={i} className="text-sm text-red-600 dark:text-red-400">- {error}</li>
             ))}
           </ul>
         </div>
       )}
 
       {/* Main Content Area */}
-      <div className={clsx('grid gap-6', activeTab === 'resume' && atsScore ? 'grid-cols-2' : 'grid-cols-1')}>
+      <div className="grid gap-6 grid-cols-1">
         {/* Editor Card */}
         <Card padding="none" className="overflow-hidden">
           {/* Editor Header */}
-          <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex items-center justify-between">
-            <span className="text-sm font-medium text-gray-700">
+          <div className="bg-gray-50 dark:bg-gray-700/50 px-4 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
               {activeTab === 'resume' ? 'resume.txt' : 'requirements.yaml'}
             </span>
             <div className="flex items-center gap-3">
               {currentValidation?.size && (
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-gray-500 dark:text-gray-400">
                   {(currentValidation.size / 1024).toFixed(1)} KB
                 </span>
               )}
@@ -505,12 +350,16 @@ export function TemplatesPage() {
               <ResumeFormEditor
                 content={resumeContent}
                 onChange={handleResumeContentChange}
+                onAnalyze={() => atsScoreMutation.mutate()}
+                isAnalyzing={isScoring}
+                atsScore={atsScore}
+                onClearAtsScore={() => setAtsScore(null)}
               />
             ) : (
               <textarea
                 value={resumeContent}
                 onChange={(e) => handleResumeContentChange(e.target.value)}
-                className="w-full h-[600px] p-4 font-mono text-sm resize-none focus:outline-none"
+                className="w-full h-[600px] p-4 font-mono text-sm resize-none focus:outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                 placeholder="Paste your resume here or upload a .docx file..."
                 spellCheck
               />
@@ -531,19 +380,14 @@ export function TemplatesPage() {
             )
           )}
         </Card>
-
-        {/* ATS Score Panel */}
-        {activeTab === 'resume' && atsScore && (
-          <ATSScorePanel score={atsScore} onClose={() => setAtsScore(null)} />
-        )}
       </div>
 
       {/* Help Text */}
-      <div className="text-sm text-gray-500">
+      <div className="text-sm text-gray-500 dark:text-gray-400">
         {activeTab === 'resume' ? (
           <p>
-            Use the <strong>Form</strong> view to edit your resume with structured fields, or switch to <strong>Raw</strong> view
-            to edit the plain text directly. Upload a .docx file to import your resume, then use ATS Score to analyze it.
+            Edit your resume in <strong>Raw</strong> view, then switch to <strong>Form</strong> view and click
+            "Analyze Resume" to parse it into structured fields and get an ATS compatibility score.
           </p>
         ) : (
           <p>

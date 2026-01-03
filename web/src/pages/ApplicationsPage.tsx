@@ -59,8 +59,8 @@ export function ApplicationsPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Applications</h1>
-        <p className="text-gray-500 mt-1">Track your job application progress</p>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Applications</h1>
+        <p className="text-gray-500 dark:text-gray-400 mt-1">Track your job application progress</p>
       </div>
 
       {/* Stats */}
@@ -72,19 +72,19 @@ export function ApplicationsPage() {
             className={clsx(
               'p-4 rounded-lg border transition-colors text-center',
               activeStatus === status
-                ? 'border-blue-500 bg-blue-50'
-                : 'border-gray-200 hover:bg-gray-50'
+                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30'
+                : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
             )}
           >
             <div
               className={clsx(
                 'text-2xl font-bold',
-                activeStatus === status ? 'text-blue-600' : 'text-gray-900'
+                activeStatus === status ? 'text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-white'
               )}
             >
               {stats?.by_status?.[status] || 0}
             </div>
-            <div className="text-sm text-gray-500 mt-1">
+            <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
               {APPLICATION_STATUS_LABELS[status]}
             </div>
           </button>
@@ -109,13 +109,13 @@ export function ApplicationsPage() {
                   }}
                 />
                 <div className="text-center mt-2">
-                  <span className="text-xs text-gray-500">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
                     {APPLICATION_STATUS_LABELS[status]}
                   </span>
                 </div>
               </div>
               {index < 4 && (
-                <div className="w-4 h-2 bg-gray-200" />
+                <div className="w-4 h-2 bg-gray-200 dark:bg-gray-700" />
               )}
             </div>
           ))}
@@ -125,7 +125,7 @@ export function ApplicationsPage() {
       {/* Filter Info */}
       {activeStatus && (
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-500">Filtering by:</span>
+          <span className="text-sm text-gray-500 dark:text-gray-400">Filtering by:</span>
           <span
             className={clsx(
               'px-2 py-1 rounded-full text-xs font-medium',
@@ -136,7 +136,7 @@ export function ApplicationsPage() {
           </span>
           <button
             onClick={() => setActiveStatus(null)}
-            className="text-sm text-blue-600 hover:underline"
+            className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
           >
             Clear filter
           </button>
@@ -147,7 +147,7 @@ export function ApplicationsPage() {
       {loadingApps ? (
         <LoadingPage message="Loading applications..." />
       ) : applications?.items.length === 0 ? (
-        <div className="bg-gray-50 text-gray-500 p-8 rounded-lg text-center">
+        <div className="bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 p-8 rounded-lg text-center">
           <p className="text-lg font-medium">No applications found</p>
           <p className="mt-1">
             {activeStatus

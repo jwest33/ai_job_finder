@@ -136,8 +136,8 @@ export function SearchPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Job Search</h1>
-        <p className="text-gray-500 mt-1">Start a new job search or run AI matching</p>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Job Search</h1>
+        <p className="text-gray-500 dark:text-gray-400 mt-1">Start a new job search or run AI matching</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -147,8 +147,8 @@ export function SearchPage() {
           <div className="space-y-4 mt-4">
             {/* Quick Search Button */}
             {config?.search_terms?.length > 0 && (
-              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-sm text-blue-700 mb-3">
+              <div className="p-4 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <p className="text-sm text-blue-700 dark:text-blue-300 mb-3">
                   Search using your profile settings ({config.search_terms.length} job titles, {config.locations?.join(', ') || 'Remote'})
                 </p>
                 <Button
@@ -174,15 +174,15 @@ export function SearchPage() {
 
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-200" />
+                <div className="w-full border-t border-gray-200 dark:border-gray-700" />
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="bg-white px-2 text-gray-500">or customize</span>
+                <span className="bg-white dark:bg-gray-800 px-2 text-gray-500 dark:text-gray-400">or customize</span>
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Job Titles (comma-separated)
               </label>
               <Input
@@ -194,7 +194,7 @@ export function SearchPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Locations (comma-separated)
               </label>
               <Input
@@ -206,7 +206,7 @@ export function SearchPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Results per search
               </label>
               <Input
@@ -220,12 +220,12 @@ export function SearchPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Job Sources
               </label>
               <div className="flex gap-4">
                 {['indeed', 'glassdoor'].map((scraper) => (
-                  <label key={scraper} className="flex items-center gap-2">
+                  <label key={scraper} className="flex items-center gap-2 text-gray-900 dark:text-gray-100">
                     <input
                       type="checkbox"
                       checked={selectedScrapers.includes(scraper)}
@@ -237,7 +237,7 @@ export function SearchPage() {
                         }
                       }}
                       disabled={isSearchRunning}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 dark:bg-gray-700"
                     />
                     <span className="capitalize">{scraper}</span>
                   </label>
@@ -265,7 +265,7 @@ export function SearchPage() {
 
             {/* Search Status */}
             {searchTaskId && searchStatus && (
-              <div className="p-4 bg-gray-50 rounded-lg">
+              <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                 <div className="flex items-center gap-2">
                   {searchStatus.status === 'running' && (
                     <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
@@ -276,17 +276,17 @@ export function SearchPage() {
                   {searchStatus.status === 'failed' && (
                     <XCircle className="w-4 h-4 text-red-600" />
                   )}
-                  <span className="font-medium capitalize">{searchStatus.status}</span>
+                  <span className="font-medium capitalize text-gray-900 dark:text-white">{searchStatus.status}</span>
                 </div>
                 {searchStatus.progress && (
                   <div className="mt-2">
-                    <div className="flex justify-between text-sm text-gray-500 mb-1">
+                    <div className="flex justify-between text-sm text-gray-500 dark:text-gray-400 mb-1">
                       <span>{searchStatus.progress.message}</span>
                       <span>
                         {searchStatus.progress.current} / {searchStatus.progress.total}
                       </span>
                     </div>
-                    <div className="w-full h-2 bg-gray-200 rounded-full">
+                    <div className="w-full h-2 bg-gray-200 dark:bg-gray-600 rounded-full">
                       <div
                         className="h-full bg-blue-600 rounded-full transition-all"
                         style={{
@@ -299,7 +299,7 @@ export function SearchPage() {
                   </div>
                 )}
                 {searchStatus.error && (
-                  <p className="mt-2 text-sm text-red-600">{searchStatus.error}</p>
+                  <p className="mt-2 text-sm text-red-600 dark:text-red-400">{searchStatus.error}</p>
                 )}
               </div>
             )}
@@ -310,25 +310,25 @@ export function SearchPage() {
         <Card>
           <CardTitle>AI Matching Pipeline</CardTitle>
           <div className="space-y-4 mt-4">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
               Run the AI matching pipeline to score jobs against your resume and requirements.
               This includes:
             </p>
-            <ul className="space-y-2 text-sm text-gray-600">
+            <ul className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
               <li className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold">
+                <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center text-blue-600 dark:text-blue-400 text-xs font-bold">
                   1
                 </div>
                 <span>Score jobs (0-100 match score)</span>
               </li>
               <li className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold">
+                <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center text-blue-600 dark:text-blue-400 text-xs font-bold">
                   2
                 </div>
                 <span>Analyze gaps and strengths</span>
               </li>
               <li className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold">
+                <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center text-blue-600 dark:text-blue-400 text-xs font-bold">
                   3
                 </div>
                 <span>Generate resume suggestions</span>
@@ -356,7 +356,7 @@ export function SearchPage() {
 
             {/* Match Status */}
             {matchTaskId && matchStatus && (
-              <div className="p-4 bg-gray-50 rounded-lg">
+              <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                 <div className="flex items-center gap-2">
                   {matchStatus.status === 'running' && (
                     <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
@@ -367,17 +367,17 @@ export function SearchPage() {
                   {matchStatus.status === 'failed' && (
                     <XCircle className="w-4 h-4 text-red-600" />
                   )}
-                  <span className="font-medium capitalize">{matchStatus.status}</span>
+                  <span className="font-medium capitalize text-gray-900 dark:text-white">{matchStatus.status}</span>
                 </div>
                 {matchStatus.progress && (
                   <div className="mt-2">
-                    <div className="flex justify-between text-sm text-gray-500 mb-1">
+                    <div className="flex justify-between text-sm text-gray-500 dark:text-gray-400 mb-1">
                       <span>{matchStatus.progress.message}</span>
                       <span>
                         {matchStatus.progress.current} / {matchStatus.progress.total}
                       </span>
                     </div>
-                    <div className="w-full h-2 bg-gray-200 rounded-full">
+                    <div className="w-full h-2 bg-gray-200 dark:bg-gray-600 rounded-full">
                       <div
                         className="h-full bg-blue-600 rounded-full transition-all"
                         style={{
@@ -390,7 +390,7 @@ export function SearchPage() {
                   </div>
                 )}
                 {matchStatus.error && (
-                  <p className="mt-2 text-sm text-red-600">{matchStatus.error}</p>
+                  <p className="mt-2 text-sm text-red-600 dark:text-red-400">{matchStatus.error}</p>
                 )}
               </div>
             )}
@@ -404,16 +404,16 @@ export function SearchPage() {
           <CardTitle>Current Configuration</CardTitle>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 text-sm">
             <div>
-              <p className="font-medium text-gray-700">Default Search Terms</p>
-              <p className="text-gray-500">{config.search_terms?.join(', ') || 'None configured'}</p>
+              <p className="font-medium text-gray-700 dark:text-gray-300">Default Search Terms</p>
+              <p className="text-gray-500 dark:text-gray-400">{config.search_terms?.join(', ') || 'None configured'}</p>
             </div>
             <div>
-              <p className="font-medium text-gray-700">Default Locations</p>
-              <p className="text-gray-500">{config.locations?.join(', ') || 'None configured'}</p>
+              <p className="font-medium text-gray-700 dark:text-gray-300">Default Locations</p>
+              <p className="text-gray-500 dark:text-gray-400">{config.locations?.join(', ') || 'None configured'}</p>
             </div>
             <div>
-              <p className="font-medium text-gray-700">Available Scrapers</p>
-              <p className="text-gray-500">{config.scrapers?.join(', ') || 'None'}</p>
+              <p className="font-medium text-gray-700 dark:text-gray-300">Available Scrapers</p>
+              <p className="text-gray-500 dark:text-gray-400">{config.scrapers?.join(', ') || 'None'}</p>
             </div>
           </div>
         </Card>

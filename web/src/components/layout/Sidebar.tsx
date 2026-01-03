@@ -25,7 +25,7 @@ export function Sidebar() {
   return (
     <aside
       className={clsx(
-        'fixed left-0 top-16 h-[calc(100vh-4rem)] bg-white border-r border-gray-200 transition-all duration-300 z-30',
+        'fixed left-0 top-16 h-[calc(100vh-4rem)] bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 transition-all duration-300 z-30',
         sidebarOpen ? 'w-64' : 'w-16'
       )}
     >
@@ -39,8 +39,8 @@ export function Sidebar() {
                   clsx(
                     'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors',
                     isActive
-                      ? 'bg-blue-50 text-blue-700'
-                      : 'text-gray-600 hover:bg-gray-100'
+                      ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
                   )
                 }
               >

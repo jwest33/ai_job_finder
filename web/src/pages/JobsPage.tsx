@@ -51,8 +51,8 @@ export function JobsPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Jobs</h1>
-        <p className="text-gray-500 mt-1">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Jobs</h1>
+        <p className="text-gray-500 dark:text-gray-400 mt-1">
           {pagination.total} jobs found
         </p>
       </div>
@@ -64,11 +64,11 @@ export function JobsPage() {
       {loading ? (
         <LoadingPage message="Loading jobs..." />
       ) : error ? (
-        <div className="bg-red-50 text-red-700 p-4 rounded-lg">
+        <div className="bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 p-4 rounded-lg">
           {error}
         </div>
       ) : jobs.length === 0 ? (
-        <div className="bg-gray-50 text-gray-500 p-8 rounded-lg text-center">
+        <div className="bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 p-8 rounded-lg text-center">
           <p className="text-lg font-medium">No jobs found</p>
           <p className="mt-1">Try adjusting your filters or run a new search</p>
         </div>
@@ -88,7 +88,7 @@ export function JobsPage() {
           {/* Pagination */}
           {pagination.totalPages > 1 && (
             <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 Showing {(pagination.page - 1) * pagination.pageSize + 1} to{' '}
                 {Math.min(pagination.page * pagination.pageSize, pagination.total)} of{' '}
                 {pagination.total} jobs
@@ -103,7 +103,7 @@ export function JobsPage() {
                   <ChevronLeft className="w-4 h-4" />
                   Previous
                 </Button>
-                <span className="text-sm text-gray-600">
+                <span className="text-sm text-gray-600 dark:text-gray-400">
                   Page {pagination.page} of {pagination.totalPages}
                 </span>
                 <Button

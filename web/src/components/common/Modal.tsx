@@ -45,17 +45,17 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
       {/* Modal */}
       <div
         className={clsx(
-          'relative bg-white rounded-lg shadow-xl w-full mx-4',
+          'relative bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full mx-4',
           sizes[size]
         )}
       >
         {/* Header */}
         {title && (
-          <div className="flex items-center justify-between px-6 py-4 border-b">
-            <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{title}</h2>
             <button
               onClick={onClose}
-              className="p-1 text-gray-400 hover:text-gray-600 rounded transition-colors"
+              className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded transition-colors"
             >
               <X className="w-5 h-5" />
             </button>

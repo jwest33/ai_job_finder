@@ -61,17 +61,17 @@ export function JobStatusDropdown({ status, onChange, disabled }: JobStatusDropd
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+        <div className="absolute right-0 mt-1 w-40 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-50">
           {STATUS_ORDER.map((s) => (
             <button
               key={s}
               onClick={() => handleSelect(s)}
-              className="w-full flex items-center justify-between px-3 py-1.5 text-xs hover:bg-gray-50"
+              className="w-full flex items-center justify-between px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-700"
             >
               <span className={clsx('px-2 py-0.5 rounded-full', APPLICATION_STATUS_COLORS[s])}>
                 {APPLICATION_STATUS_LABELS[s]}
               </span>
-              {s === status && <Check className="w-3 h-3 text-blue-600" />}
+              {s === status && <Check className="w-3 h-3 text-blue-600 dark:text-blue-400" />}
             </button>
           ))}
         </div>

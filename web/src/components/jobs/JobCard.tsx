@@ -6,7 +6,6 @@ import { JobStatusDropdown } from './JobStatusDropdown';
 import { Badge } from '../common/Badge';
 import { Card } from '../common/Card';
 import { formatDistanceToNow } from 'date-fns';
-import clsx from 'clsx';
 
 interface JobCardProps {
   job: Job;
@@ -15,8 +14,8 @@ interface JobCardProps {
 
 export function JobCard({ job, onStatusChange }: JobCardProps) {
   const sourceColors: Record<string, string> = {
-    indeed: 'bg-blue-100 text-blue-700',
-    glassdoor: 'bg-green-100 text-green-700',
+    indeed: 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300',
+    glassdoor: 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300',
   };
 
   const formatSalary = () => {
@@ -60,10 +59,10 @@ export function JobCard({ job, onStatusChange }: JobCardProps) {
             <img
               src={job.company_logo_url}
               alt={job.company}
-              className="w-12 h-12 rounded-lg object-contain bg-gray-50"
+              className="w-12 h-12 rounded-lg object-contain bg-gray-50 dark:bg-gray-700"
             />
           ) : (
-            <div className="w-12 h-12 rounded-lg bg-gray-100 flex items-center justify-center">
+            <div className="w-12 h-12 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
               <Building2 className="w-6 h-6 text-gray-400" />
             </div>
           )}
@@ -76,14 +75,14 @@ export function JobCard({ job, onStatusChange }: JobCardProps) {
             <div className="min-w-0">
               <Link
                 to={`/jobs/${encodedUrl}`}
-                className="text-lg font-semibold text-gray-900 hover:text-blue-600 transition-colors line-clamp-1"
+                className="text-lg font-semibold text-gray-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 transition-colors line-clamp-1"
               >
                 {job.title}
               </Link>
-              <div className="flex items-center gap-2 text-sm text-gray-600 mt-0.5">
+              <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mt-0.5">
                 <span className="font-medium">{job.company}</span>
                 {job.company_rating && (
-                  <span className="text-yellow-600">★ {job.company_rating.toFixed(1)}</span>
+                  <span className="text-yellow-600 dark:text-yellow-500">★ {job.company_rating.toFixed(1)}</span>
                 )}
               </div>
             </div>
@@ -93,13 +92,13 @@ export function JobCard({ job, onStatusChange }: JobCardProps) {
           </div>
 
           {/* Meta */}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-sm text-gray-500">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-sm text-gray-500 dark:text-gray-400">
             <span className="flex items-center gap-1">
               <MapPin className="w-4 h-4" />
               {job.location}
             </span>
             {job.remote && (
-              <span className="flex items-center gap-1 text-green-600">
+              <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
                 <Wifi className="w-4 h-4" />
                 Remote
               </span>
@@ -123,7 +122,7 @@ export function JobCard({ job, onStatusChange }: JobCardProps) {
           </div>
 
           {/* Actions */}
-          <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
+          <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
             <JobStatusDropdown
               status={job.application_status || 'not_applied'}
               onChange={(status) => onStatusChange?.(job.job_url, status)}
@@ -133,7 +132,7 @@ export function JobCard({ job, onStatusChange }: JobCardProps) {
                 href={job.job_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
+                className="flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
               >
                 <ExternalLink className="w-4 h-4" />
                 View Original

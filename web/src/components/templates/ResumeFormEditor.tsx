@@ -1,13 +1,18 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, Loader2, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, Loader2, Zap, ChevronDown, ChevronUp } from 'lucide-react';
 import { TagInput } from '../common/TagInput';
 import { Button } from '../common/Button';
 import { templatesApi } from '../../api/templates';
-import type { ParsedResume, ExperienceEntry, EducationEntry } from '../../types/template';
+import type { ParsedResume, ExperienceEntry, EducationEntry, ATSScoreResult, ATSCategoryResult } from '../../types/template';
+import clsx from 'clsx';
 
 interface ResumeFormEditorProps {
   content: string;
   onChange: (content: string) => void;
+  onAnalyze?: () => void;
+  isAnalyzing?: boolean;
+  atsScore?: ATSScoreResult | null;
+  onClearAtsScore?: () => void;
 }
 
 // Generate unique IDs
@@ -143,6 +148,148 @@ function emptyFormData(): LocalFormData {
     certifications: [],
     languages: []
   };
+}
+
+// ATS Score helpers
+const CATEGORY_LABELS: Record<string, string> = {
+  keywords: 'Keywords',
+  formatting: 'Formatting',
+  sections: 'Section Structure',
+  achievements: 'Achievements',
+  contact_info: 'Contact Info',
+  skills: 'Skills',
+};
+
+function getScoreColor(score: number): string {
+  if (score >= 90) return 'text-green-600';
+  if (score >= 70) return 'text-blue-600';
+  if (score >= 50) return 'text-yellow-600';
+  return 'text-red-600';
+}
+
+function getScoreBgColor(score: number): string {
+  if (score >= 90) return 'bg-green-500';
+  if (score >= 70) return 'bg-blue-500';
+  if (score >= 50) return 'bg-yellow-500';
+  return 'bg-red-500';
+}
+
+function ATSCategoryCard({ name, data }: { name: string; data: ATSCategoryResult }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasIssues = data.issues.length > 0;
+  const hasRecommendations = data.recommendations.length > 0;
+
+  return (
+    <div className="border border-gray-200 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between p-3 hover:bg-gray-50"
+      >
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium text-gray-700">{CATEGORY_LABELS[name] || name}</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+              <div
+                className={clsx('h-full rounded-full', getScoreBgColor(data.score))}
+                style={{ width: `${data.score}%` }}
+              />
+            </div>
+            <span className={clsx('text-sm font-bold w-8', getScoreColor(data.score))}>
+              {data.score}
+            </span>
+          </div>
+          {(hasIssues || hasRecommendations) && (
+            expanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />
+          )}
+        </div>
+      </button>
+      {expanded && (hasIssues || hasRecommendations) && (
+        <div className="px-3 pb-3 space-y-3">
+          {hasIssues && (
+            <div>
+              <h4 className="text-xs font-medium text-red-600 uppercase mb-1">Issues</h4>
+              <ul className="space-y-1">
+                {data.issues.map((issue, i) => (
+                  <li key={i} className="text-sm text-gray-600 flex items-start gap-2">
+                    <span className="text-red-400 mt-0.5">-</span>
+                    {issue}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {hasRecommendations && (
+            <div>
+              <h4 className="text-xs font-medium text-blue-600 uppercase mb-1">Recommendations</h4>
+              <ul className="space-y-1">
+                {data.recommendations.map((rec, i) => (
+                  <li key={i} className="text-sm text-gray-600 flex items-start gap-2">
+                    <span className="text-blue-400 mt-0.5">+</span>
+                    {rec}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ATSScorePanel({ score, onClose }: { score: ATSScoreResult; onClose: () => void }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
+      <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+        <h3 className="font-semibold text-gray-900">ATS Quality Score</h3>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">
+          &times;
+        </button>
+      </div>
+
+      <div className="p-4 space-y-4 max-h-[400px] overflow-y-auto">
+        {/* Overall Score */}
+        <div className="text-center py-4">
+          <div className={clsx('text-5xl font-bold', getScoreColor(score.overall_score))}>
+            {score.overall_score}
+          </div>
+          <div className="text-sm text-gray-500 mt-1">out of 100</div>
+        </div>
+
+        {/* Summary */}
+        <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg">
+          {score.summary}
+        </p>
+
+        {/* Category Breakdown */}
+        <div>
+          <h4 className="text-sm font-medium text-gray-700 mb-2">Category Scores</h4>
+          <div className="space-y-2">
+            {Object.entries(score.categories).map(([name, data]) => (
+              <ATSCategoryCard key={name} name={name} data={data} />
+            ))}
+          </div>
+        </div>
+
+        {/* Top Recommendations */}
+        {score.top_recommendations.length > 0 && (
+          <div>
+            <h4 className="text-sm font-medium text-gray-700 mb-2">Top Recommendations</h4>
+            <ul className="space-y-2">
+              {score.top_recommendations.map((rec, i) => (
+                <li key={i} className="text-sm text-gray-600 flex items-start gap-2 bg-blue-50 p-2 rounded">
+                  <span className="text-blue-500 font-bold">{i + 1}.</span>
+                  {rec}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // Form Section Component
@@ -320,14 +467,14 @@ function EducationEntryForm({ entry, onChange, onDelete }: {
 }
 
 // Main Component
-export function ResumeFormEditor({ content, onChange }: ResumeFormEditorProps) {
+export function ResumeFormEditor({ content, onChange, onAnalyze, isAnalyzing, atsScore, onClearAtsScore }: ResumeFormEditorProps) {
   const [formData, setFormData] = useState<LocalFormData>(emptyFormData());
   const [isParsing, setIsParsing] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const [hasParsed, setHasParsed] = useState(false);
 
-  // Parse resume when component mounts or content changes significantly
-  const parseResume = async () => {
+  // Combined analyze function - parses resume and triggers ATS scoring
+  const analyzeResume = async () => {
     if (!content.trim()) {
       setFormData(emptyFormData());
       setHasParsed(true);
@@ -338,24 +485,20 @@ export function ResumeFormEditor({ content, onChange }: ResumeFormEditorProps) {
     setParseError(null);
 
     try {
+      // Parse the resume into structured form
       const parsed = await templatesApi.parseResume();
       setFormData(toLocalFormData(parsed));
       setHasParsed(true);
+
+      // Also trigger ATS scoring
+      onAnalyze?.();
     } catch (error) {
       console.error('Failed to parse resume:', error);
       setParseError(error instanceof Error ? error.message : 'Failed to parse resume');
-      // Keep existing form data on error
     } finally {
       setIsParsing(false);
     }
   };
-
-  // Parse on initial mount if there's content
-  useEffect(() => {
-    if (content.trim() && !hasParsed) {
-      parseResume();
-    }
-  }, []);
 
   // Update parent when form data changes (but not during parsing)
   useEffect(() => {
@@ -429,12 +572,40 @@ export function ResumeFormEditor({ content, onChange }: ResumeFormEditorProps) {
     }));
   };
 
+  const isWorking = isParsing || isAnalyzing;
+
+  // Show analyze prompt if not yet parsed
+  if (!hasParsed && !isParsing) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[600px] text-gray-500 p-8">
+        <Zap className="w-12 h-12 text-gray-300 mb-4" />
+        <h3 className="text-lg font-medium text-gray-700 mb-2">Analyze Your Resume</h3>
+        <p className="text-sm text-center text-gray-500 mb-6 max-w-md">
+          Click the button below to parse your resume into structured fields and get an ATS compatibility score.
+        </p>
+        <Button
+          onClick={analyzeResume}
+          disabled={!content.trim()}
+          loading={false}
+        >
+          <Zap className="w-4 h-4 mr-2" />
+          Analyze Resume
+        </Button>
+        {!content.trim() && (
+          <p className="text-xs text-gray-400 mt-3">
+            Add resume content in Raw view first, then switch back to Form view to analyze.
+          </p>
+        )}
+      </div>
+    );
+  }
+
   // Loading state
-  if (isParsing) {
+  if (isWorking) {
     return (
       <div className="flex flex-col items-center justify-center h-[600px] text-gray-500">
         <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-4" />
-        <p className="text-sm">Parsing resume with AI...</p>
+        <p className="text-sm">{isParsing ? 'Parsing resume...' : 'Analyzing ATS compatibility...'}</p>
         <p className="text-xs text-gray-400 mt-1">This may take a few seconds</p>
       </div>
     );
@@ -442,25 +613,32 @@ export function ResumeFormEditor({ content, onChange }: ResumeFormEditorProps) {
 
   return (
     <div className="space-y-4 p-4 max-h-[600px] overflow-y-auto">
-      {/* Parse Error / Re-parse Button */}
+      {/* ATS Score Panel */}
+      {atsScore && onClearAtsScore && (
+        <ATSScorePanel score={atsScore} onClose={onClearAtsScore} />
+      )}
+
+      {/* Parse Error */}
       {parseError && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-center justify-between">
           <p className="text-sm text-yellow-800">{parseError}</p>
-          <Button variant="secondary" size="sm" onClick={parseResume}>
-            <RefreshCw className="w-4 h-4 mr-1" /> Retry
+          <Button variant="secondary" size="sm" onClick={analyzeResume}>
+            <Zap className="w-4 h-4 mr-1" /> Retry
           </Button>
         </div>
       )}
 
-      {/* Re-parse button for when user wants to re-analyze */}
+      {/* Re-analyze button */}
       {!parseError && hasParsed && (
         <div className="flex justify-end">
-          <button
-            onClick={parseResume}
-            className="text-xs text-gray-500 hover:text-blue-600 flex items-center gap-1"
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={analyzeResume}
+            disabled={isWorking}
           >
-            <RefreshCw className="w-3 h-3" /> Re-parse with AI
-          </button>
+            <Zap className="w-4 h-4 mr-1" /> Re-analyze
+          </Button>
         </div>
       )}
 
