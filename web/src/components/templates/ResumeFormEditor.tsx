@@ -11,6 +11,7 @@ interface ResumeFormEditorProps {
   onChange: (content: string) => void;
   onAnalyze?: () => void;
   isAnalyzing?: boolean;
+  isLoadingCachedScore?: boolean;
   atsScore?: ATSScoreResult | null;
   onClearAtsScore?: () => void;
 }
@@ -161,10 +162,10 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 function getScoreColor(score: number): string {
-  if (score >= 90) return 'text-green-600';
-  if (score >= 70) return 'text-blue-600';
-  if (score >= 50) return 'text-yellow-600';
-  return 'text-red-600';
+  if (score >= 90) return 'text-green-600 dark:text-green-400';
+  if (score >= 70) return 'text-blue-600 dark:text-blue-400';
+  if (score >= 50) return 'text-yellow-600 dark:text-yellow-400';
+  return 'text-red-600 dark:text-red-400';
 }
 
 function getScoreBgColor(score: number): string {
@@ -180,17 +181,17 @@ function ATSCategoryCard({ name, data }: { name: string; data: ATSCategoryResult
   const hasRecommendations = data.recommendations.length > 0;
 
   return (
-    <div className="border border-gray-200 rounded-lg overflow-hidden">
+    <div className="border border-gray-200 dark:border-gray-600 rounded-lg overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between p-3 hover:bg-gray-50"
+        className="w-full flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-700"
       >
         <div className="flex items-center gap-3">
-          <span className="text-sm font-medium text-gray-700">{CATEGORY_LABELS[name] || name}</span>
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{CATEGORY_LABELS[name] || name}</span>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <div className="w-24 h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div className="w-24 h-2 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
               <div
                 className={clsx('h-full rounded-full', getScoreBgColor(data.score))}
                 style={{ width: `${data.score}%` }}
@@ -206,13 +207,13 @@ function ATSCategoryCard({ name, data }: { name: string; data: ATSCategoryResult
         </div>
       </button>
       {expanded && (hasIssues || hasRecommendations) && (
-        <div className="px-3 pb-3 space-y-3">
+        <div className="px-3 pb-3 space-y-3 bg-white dark:bg-gray-800">
           {hasIssues && (
             <div>
-              <h4 className="text-xs font-medium text-red-600 uppercase mb-1">Issues</h4>
+              <h4 className="text-xs font-medium text-red-600 dark:text-red-400 uppercase mb-1">Issues</h4>
               <ul className="space-y-1">
                 {data.issues.map((issue, i) => (
-                  <li key={i} className="text-sm text-gray-600 flex items-start gap-2">
+                  <li key={i} className="text-sm text-gray-600 dark:text-gray-400 flex items-start gap-2">
                     <span className="text-red-400 mt-0.5">-</span>
                     {issue}
                   </li>
@@ -222,10 +223,10 @@ function ATSCategoryCard({ name, data }: { name: string; data: ATSCategoryResult
           )}
           {hasRecommendations && (
             <div>
-              <h4 className="text-xs font-medium text-blue-600 uppercase mb-1">Recommendations</h4>
+              <h4 className="text-xs font-medium text-blue-600 dark:text-blue-400 uppercase mb-1">Recommendations</h4>
               <ul className="space-y-1">
                 {data.recommendations.map((rec, i) => (
-                  <li key={i} className="text-sm text-gray-600 flex items-start gap-2">
+                  <li key={i} className="text-sm text-gray-600 dark:text-gray-400 flex items-start gap-2">
                     <span className="text-blue-400 mt-0.5">+</span>
                     {rec}
                   </li>
@@ -241,31 +242,31 @@ function ATSCategoryCard({ name, data }: { name: string; data: ATSCategoryResult
 
 function ATSScorePanel({ score, onClose }: { score: ATSScoreResult; onClose: () => void }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
-      <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-        <h3 className="font-semibold text-gray-900">ATS Quality Score</h3>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">
+    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm overflow-hidden">
+      <div className="bg-gray-50 dark:bg-gray-700 px-4 py-3 border-b border-gray-200 dark:border-gray-600 flex items-center justify-between">
+        <h3 className="font-semibold text-gray-900 dark:text-white">ATS Quality Score</h3>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl leading-none">
           &times;
         </button>
       </div>
 
-      <div className="p-4 space-y-4 max-h-[400px] overflow-y-auto">
+      <div className="p-4 space-y-4 max-h-[600px] overflow-y-auto">
         {/* Overall Score */}
         <div className="text-center py-4">
           <div className={clsx('text-5xl font-bold', getScoreColor(score.overall_score))}>
             {score.overall_score}
           </div>
-          <div className="text-sm text-gray-500 mt-1">out of 100</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">out of 100</div>
         </div>
 
         {/* Summary */}
-        <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg">
+        <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">
           {score.summary}
         </p>
 
         {/* Category Breakdown */}
         <div>
-          <h4 className="text-sm font-medium text-gray-700 mb-2">Category Scores</h4>
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Category Scores</h4>
           <div className="space-y-2">
             {Object.entries(score.categories).map(([name, data]) => (
               <ATSCategoryCard key={name} name={name} data={data} />
@@ -276,11 +277,11 @@ function ATSScorePanel({ score, onClose }: { score: ATSScoreResult; onClose: () 
         {/* Top Recommendations */}
         {score.top_recommendations.length > 0 && (
           <div>
-            <h4 className="text-sm font-medium text-gray-700 mb-2">Top Recommendations</h4>
+            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Top Recommendations</h4>
             <ul className="space-y-2">
               {score.top_recommendations.map((rec, i) => (
-                <li key={i} className="text-sm text-gray-600 flex items-start gap-2 bg-blue-50 p-2 rounded">
-                  <span className="text-blue-500 font-bold">{i + 1}.</span>
+                <li key={i} className="text-sm text-gray-600 dark:text-gray-300 flex items-start gap-2 bg-blue-50 dark:bg-blue-900/30 p-2 rounded">
+                  <span className="text-blue-500 dark:text-blue-400 font-bold">{i + 1}.</span>
                   {rec}
                 </li>
               ))}
@@ -295,11 +296,11 @@ function ATSScorePanel({ score, onClose }: { score: ATSScoreResult; onClose: () 
 // Form Section Component
 function FormSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="border border-gray-200 rounded-lg overflow-hidden">
-      <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
-        <h3 className="text-sm font-semibold text-gray-700">{title}</h3>
+    <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+      <div className="bg-gray-50 dark:bg-gray-700 px-4 py-2 border-b border-gray-200 dark:border-gray-600">
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">{title}</h3>
       </div>
-      <div className="p-4 space-y-4">
+      <div className="p-4 space-y-4 bg-white dark:bg-gray-800">
         {children}
       </div>
     </div>
@@ -316,13 +317,13 @@ function FormField({ label, value, onChange, placeholder, type = 'text' }: {
 }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{label}</label>
       <input
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
       />
     </div>
   );
@@ -349,7 +350,7 @@ function ExperienceEntryForm({ entry, onChange, onDelete }: {
   };
 
   return (
-    <div className="border border-gray-200 rounded-lg p-4 space-y-3 bg-gray-50">
+    <div className="border border-gray-200 dark:border-gray-600 rounded-lg p-4 space-y-3 bg-gray-50 dark:bg-gray-700/50">
       <div className="flex justify-between items-start">
         <div className="grid grid-cols-2 gap-3 flex-1">
           <FormField
@@ -383,13 +384,13 @@ function ExperienceEntryForm({ entry, onChange, onDelete }: {
             placeholder="San Francisco, CA"
           />
         </div>
-        <button onClick={onDelete} className="ml-2 p-2 text-red-500 hover:bg-red-50 rounded">
+        <button onClick={onDelete} className="ml-2 p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded">
           <Trash2 className="w-4 h-4" />
         </button>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Accomplishments</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Accomplishments</label>
         <div className="space-y-2">
           {entry.bullets.map((bullet, index) => (
             <div key={index} className="flex gap-2">
@@ -399,7 +400,7 @@ function ExperienceEntryForm({ entry, onChange, onDelete }: {
                 value={bullet}
                 onChange={(e) => updateBullet(index, e.target.value)}
                 placeholder="Describe your accomplishment..."
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
               />
               <button onClick={() => removeBullet(index)} className="p-2 text-gray-400 hover:text-red-500">
                 <Trash2 className="w-4 h-4" />
@@ -407,7 +408,7 @@ function ExperienceEntryForm({ entry, onChange, onDelete }: {
             </div>
           ))}
         </div>
-        <button onClick={addBullet} className="mt-2 text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1">
+        <button onClick={addBullet} className="mt-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 flex items-center gap-1">
           <Plus className="w-4 h-4" /> Add accomplishment
         </button>
       </div>
@@ -422,7 +423,7 @@ function EducationEntryForm({ entry, onChange, onDelete }: {
   onDelete: () => void;
 }) {
   return (
-    <div className="border border-gray-200 rounded-lg p-4 bg-gray-50 space-y-3">
+    <div className="border border-gray-200 dark:border-gray-600 rounded-lg p-4 bg-gray-50 dark:bg-gray-700/50 space-y-3">
       <div className="flex gap-3 items-start">
         <div className="grid grid-cols-3 gap-3 flex-1">
           <FormField
@@ -444,7 +445,7 @@ function EducationEntryForm({ entry, onChange, onDelete }: {
             placeholder="2020"
           />
         </div>
-        <button onClick={onDelete} className="mt-6 p-2 text-red-500 hover:bg-red-50 rounded">
+        <button onClick={onDelete} className="mt-6 p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded">
           <Trash2 className="w-4 h-4" />
         </button>
       </div>
@@ -467,7 +468,7 @@ function EducationEntryForm({ entry, onChange, onDelete }: {
 }
 
 // Main Component
-export function ResumeFormEditor({ content, onChange, onAnalyze, isAnalyzing, atsScore, onClearAtsScore }: ResumeFormEditorProps) {
+export function ResumeFormEditor({ content, onChange, onAnalyze, isAnalyzing, isLoadingCachedScore, atsScore, onClearAtsScore }: ResumeFormEditorProps) {
   const [formData, setFormData] = useState<LocalFormData>(emptyFormData());
   const [isParsing, setIsParsing] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -574,13 +575,23 @@ export function ResumeFormEditor({ content, onChange, onAnalyze, isAnalyzing, at
 
   const isWorking = isParsing || isAnalyzing;
 
-  // Show analyze prompt if not yet parsed
-  if (!hasParsed && !isParsing) {
+  // Show loading state while fetching cached ATS score
+  if (isLoadingCachedScore) {
     return (
-      <div className="flex flex-col items-center justify-center h-[600px] text-gray-500 p-8">
-        <Zap className="w-12 h-12 text-gray-300 mb-4" />
-        <h3 className="text-lg font-medium text-gray-700 mb-2">Analyze Your Resume</h3>
-        <p className="text-sm text-center text-gray-500 mb-6 max-w-md">
+      <div className="flex flex-col items-center justify-center h-[600px] text-gray-500 dark:text-gray-400">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-4" />
+        <p className="text-sm">Loading cached ATS score...</p>
+      </div>
+    );
+  }
+
+  // Show analyze prompt if not yet parsed AND no cached ATS score
+  if (!hasParsed && !isParsing && !atsScore) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[600px] text-gray-500 dark:text-gray-400 p-8">
+        <Zap className="w-12 h-12 text-gray-300 dark:text-gray-600 mb-4" />
+        <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">Analyze Your Resume</h3>
+        <p className="text-sm text-center text-gray-500 dark:text-gray-400 mb-6 max-w-md">
           Click the button below to parse your resume into structured fields and get an ATS compatibility score.
         </p>
         <Button
@@ -592,7 +603,7 @@ export function ResumeFormEditor({ content, onChange, onAnalyze, isAnalyzing, at
           Analyze Resume
         </Button>
         {!content.trim() && (
-          <p className="text-xs text-gray-400 mt-3">
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">
             Add resume content in Raw view first, then switch back to Form view to analyze.
           </p>
         )}
@@ -600,13 +611,40 @@ export function ResumeFormEditor({ content, onChange, onAnalyze, isAnalyzing, at
     );
   }
 
+  // Show cached ATS score with option to parse for form editing
+  if (!hasParsed && !isParsing && atsScore) {
+    return (
+      <div className="space-y-4 p-4 max-h-[600px] overflow-y-auto">
+        {/* Show cached ATS Score Panel */}
+        {onClearAtsScore && (
+          <ATSScorePanel score={atsScore} onClose={onClearAtsScore} />
+        )}
+
+        {/* Prompt to parse for form editing */}
+        <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4 text-center">
+          <p className="text-sm text-blue-700 dark:text-blue-300 mb-3">
+            Want to edit your resume in form view? Click below to parse the content.
+          </p>
+          <Button
+            onClick={analyzeResume}
+            disabled={!content.trim()}
+            variant="secondary"
+          >
+            <Zap className="w-4 h-4 mr-2" />
+            Parse Resume for Editing
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   // Loading state
   if (isWorking) {
     return (
-      <div className="flex flex-col items-center justify-center h-[600px] text-gray-500">
+      <div className="flex flex-col items-center justify-center h-[600px] text-gray-500 dark:text-gray-400">
         <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-4" />
         <p className="text-sm">{isParsing ? 'Parsing resume...' : 'Analyzing ATS compatibility...'}</p>
-        <p className="text-xs text-gray-400 mt-1">This may take a few seconds</p>
+        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">This may take a few seconds</p>
       </div>
     );
   }
@@ -620,8 +658,8 @@ export function ResumeFormEditor({ content, onChange, onAnalyze, isAnalyzing, at
 
       {/* Parse Error */}
       {parseError && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 flex items-center justify-between">
-          <p className="text-sm text-yellow-800">{parseError}</p>
+        <div className="bg-yellow-50 dark:bg-yellow-900/30 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 flex items-center justify-between">
+          <p className="text-sm text-yellow-800 dark:text-yellow-300">{parseError}</p>
           <Button variant="secondary" size="sm" onClick={analyzeResume}>
             <Zap className="w-4 h-4 mr-1" /> Retry
           </Button>
@@ -694,7 +732,7 @@ export function ResumeFormEditor({ content, onChange, onAnalyze, isAnalyzing, at
           value={formData.summary}
           onChange={(e) => setFormData(prev => ({ ...prev, summary: e.target.value }))}
           placeholder="A brief summary of your professional background and career objectives..."
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm min-h-[100px]"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm min-h-[100px]"
         />
       </FormSection>
 

@@ -304,6 +304,20 @@ class DatabaseManager:
                 )
                 """)
 
+                # ATS scores - stores resume ATS analysis results for caching
+                conn.execute("""
+                CREATE TABLE IF NOT EXISTS ats_scores (
+                id INTEGER PRIMARY KEY,
+                resume_hash VARCHAR NOT NULL,
+                overall_score INTEGER NOT NULL,
+                categories_json TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                top_recommendations_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """)
+
                 # Create indexes for performance
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_source ON jobs(source)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_match_score ON jobs(match_score)")
@@ -316,6 +330,7 @@ class DatabaseManager:
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_applications_updated ON job_applications(updated_at)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_attachments_job_url ON job_attachments(job_url)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_attachments_type ON job_attachments(attachment_type)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_ats_scores_resume_hash ON ats_scores(resume_hash)")
 
                 DatabaseManager._schema_initialized[db_key] = True
             finally:

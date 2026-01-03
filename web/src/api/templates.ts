@@ -67,6 +67,16 @@ export const templatesApi = {
     }
   },
 
+  async getCachedATSScore(): Promise<ATSScoreResult | null> {
+    try {
+      const response = await apiClient.get('/templates/resume/ats-score');
+      return response.data;
+    } catch (error) {
+      // Return null if no cached score (404) or other error
+      return null;
+    }
+  },
+
   async parseResume(): Promise<ParsedResume> {
     try {
       const response = await apiClient.post('/templates/resume/parse');

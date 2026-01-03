@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Briefcase, Target, TrendingUp, Clock, CheckCircle, XCircle } from 'lucide-react';
+import { Briefcase, Target, TrendingUp, Clock, CheckCircle } from 'lucide-react';
 import { Card, CardTitle } from '../components/common/Card';
 import { LoadingPage } from '../components/common/LoadingSpinner';
 import { jobsApi } from '../api/jobs';

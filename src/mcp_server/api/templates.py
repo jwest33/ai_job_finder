@@ -5,8 +5,11 @@ REST endpoints for resume and requirements management.
 """
 
 import re
+import json
+import hashlib
 from pathlib import Path
 from typing import Optional, Dict, Any, List
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
@@ -14,6 +17,7 @@ import yaml
 from dotenv import load_dotenv
 
 from src.utils.profile_manager import ProfilePaths
+from src.core.database import get_database
 
 router = APIRouter()
 
@@ -131,6 +135,13 @@ def get_file_info(path: Path) -> tuple[bool, Optional[int], Optional[str]]:
         stat = path.stat()
         return True, stat.st_size, str(stat.st_mtime)
     return False, None, None
+
+
+def compute_resume_hash(content: str) -> str:
+    """Compute a hash of the resume content for caching."""
+    # Normalize whitespace to avoid cache misses due to minor formatting changes
+    normalized = ' '.join(content.split())
+    return hashlib.sha256(normalized.encode('utf-8')).hexdigest()[:32]
 
 
 @router.get("/resume", response_model=ResumeContent)
@@ -277,6 +288,68 @@ async def validate_templates():
             errors=req_errors if req_errors else None,
         ),
     )
+
+
+@router.get("/resume/ats-score", response_model=Optional[ATSScoreResponse])
+async def get_cached_ats_score():
+    """
+    Get cached ATS score for the current resume if it exists.
+
+    Returns the cached ATS score if the resume content hasn't changed
+    since the last scoring, or null if no cached score exists.
+    """
+    paths = get_current_profile_paths()
+    resume_path = paths.resume_path
+
+    if not resume_path.exists():
+        return None
+
+    content = resume_path.read_text(encoding='utf-8')
+    if not content.strip():
+        return None
+
+    # Compute hash of current resume content
+    resume_hash = compute_resume_hash(content)
+
+    # Look up cached score
+    db = get_database()
+    result = db.fetchone(
+        """SELECT overall_score, categories_json, summary, top_recommendations_json
+           FROM ats_scores
+           WHERE resume_hash = ?
+           ORDER BY created_at DESC
+           LIMIT 1""",
+        (resume_hash,)
+    )
+
+    if not result:
+        return None
+
+    overall_score, categories_json, summary, top_recommendations_json = result
+
+    # Parse JSON fields
+    try:
+        categories_data = json.loads(categories_json)
+        top_recommendations = json.loads(top_recommendations_json)
+
+        # Convert to response model
+        categories = {}
+        for name, cat_data in categories_data.items():
+            categories[name] = ATSCategoryResult(
+                score=cat_data.get("score", 0),
+                issues=cat_data.get("issues", []),
+                recommendations=cat_data.get("recommendations", [])
+            )
+
+        return ATSScoreResponse(
+            overall_score=overall_score,
+            categories=categories,
+            summary=summary,
+            top_recommendations=top_recommendations
+        )
+    except (json.JSONDecodeError, KeyError) as e:
+        # Invalid cached data, return None to trigger re-scoring
+        return None
 
 
 def extract_text_from_docx(file_content: bytes) -> str:
@@ -437,12 +510,41 @@ async def score_resume_ats():
 
         # Convert to response model
         categories = {}
+        categories_dict = {}
         for name, cat in result.categories.items():
             categories[name] = ATSCategoryResult(
                 score=cat.score,
                 issues=cat.issues,
                 recommendations=cat.recommendations
             )
+            categories_dict[name] = {
+                "score": cat.score,
+                "issues": cat.issues,
+                "recommendations": cat.recommendations
+            }
+
+        # Save to database for caching
+        resume_hash = compute_resume_hash(content)
+        db = get_database()
+        now = datetime.now()
+
+        # Delete any existing score for this resume hash and insert new one
+        db.execute("DELETE FROM ats_scores WHERE resume_hash = ?", (resume_hash,))
+        db.execute(
+            """INSERT INTO ats_scores (
+                resume_hash, overall_score, categories_json, summary,
+                top_recommendations_json, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                resume_hash,
+                result.overall_score,
+                json.dumps(categories_dict),
+                result.summary,
+                json.dumps(result.top_recommendations),
+                now,
+                now
+            )
+        )
 
         return ATSScoreResponse(
             overall_score=result.overall_score,

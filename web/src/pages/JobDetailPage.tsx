@@ -160,14 +160,7 @@ export function JobDetailPage() {
                 onChange={handleStatusChange}
               />
               <Button
-                as="a"
-                href={job.job_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => {
-                  e.preventDefault();
-                  window.open(job.job_url, '_blank');
-                }}
+                onClick={() => window.open(job.job_url, '_blank')}
               >
                 <ExternalLink className="w-4 h-4 mr-2" />
                 View Original

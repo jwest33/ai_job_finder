@@ -5,7 +5,6 @@ import { useJobStore } from '../../store/jobStore';
 import { jobsApi } from '../../api/jobs';
 import { Input } from '../common/Input';
 import { Select } from '../common/Select';
-import { Button } from '../common/Button';
 import { APPLICATION_STATUS_LABELS, ApplicationStatus } from '../../types/job';
 
 export function JobFilters() {

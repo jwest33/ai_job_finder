@@ -73,7 +73,7 @@ export function SettingsPage() {
       setApiKey(''); // Don't show masked key in input
       setModel(settings.model);
       setVisionModel(settings.vision_model || '');
-      setVisionEnabled(settings.vision_enabled);
+      setVisionEnabled(settings.vision_enabled ?? null);
       setTemperature(settings.temperature);
       setMaxTokens(settings.max_tokens);
       setTimeout(settings.timeout);
@@ -117,18 +117,6 @@ export function SettingsPage() {
     },
     onError: () => {
       toast.error('Failed to reset settings');
-    },
-  });
-
-  // Apply preset mutation
-  const applyPresetMutation = useMutation({
-    mutationFn: (presetId: string) => aiApi.applyPreset(presetId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['ai-settings'] });
-      toast.success('Preset applied');
-    },
-    onError: () => {
-      toast.error('Failed to apply preset');
     },
   });
 

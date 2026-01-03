@@ -91,6 +91,21 @@ export function TemplatesPage() {
     queryFn: templatesApi.validate,
   });
 
+  // Load cached ATS score
+  const { data: cachedAtsScore, isLoading: loadingAtsScore } = useQuery({
+    queryKey: ['cached-ats-score'],
+    queryFn: templatesApi.getCachedATSScore,
+    // Only fetch when we have resume content
+    enabled: !!resumeData?.content,
+  });
+
+  // Set ATS score from cache when it loads
+  useEffect(() => {
+    if (cachedAtsScore && !atsScore) {
+      setAtsScore(cachedAtsScore);
+    }
+  }, [cachedAtsScore]);
+
   // Save resume
   const saveResumeMutation = useMutation({
     mutationFn: templatesApi.updateResume,
@@ -126,6 +141,7 @@ export function TemplatesPage() {
       setResumeContent(data.content);
       queryClient.invalidateQueries({ queryKey: ['resume'] });
       queryClient.invalidateQueries({ queryKey: ['template-validation'] });
+      queryClient.invalidateQueries({ queryKey: ['cached-ats-score'] });
       toast.success(data.message);
       setHasUnsavedChanges(false);
       setAtsScore(null);
@@ -140,6 +156,8 @@ export function TemplatesPage() {
     mutationFn: templatesApi.getATSScore,
     onSuccess: (data) => {
       setAtsScore(data);
+      // Invalidate the cache so it picks up the new score
+      queryClient.invalidateQueries({ queryKey: ['cached-ats-score'] });
       toast.success('ATS scoring complete');
     },
     onError: (error: Error) => {
@@ -352,6 +370,7 @@ export function TemplatesPage() {
                 onChange={handleResumeContentChange}
                 onAnalyze={() => atsScoreMutation.mutate()}
                 isAnalyzing={isScoring}
+                isLoadingCachedScore={loadingAtsScore}
                 atsScore={atsScore}
                 onClearAtsScore={() => setAtsScore(null)}
               />

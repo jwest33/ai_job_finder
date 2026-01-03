@@ -146,7 +146,7 @@ export function SearchPage() {
           <CardTitle>New Job Search</CardTitle>
           <div className="space-y-4 mt-4">
             {/* Quick Search Button */}
-            {config?.search_terms?.length > 0 && (
+            {config?.search_terms && config.search_terms.length > 0 && (
               <div className="p-4 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg">
                 <p className="text-sm text-blue-700 dark:text-blue-300 mb-3">
                   Search using your profile settings ({config.search_terms.length} job titles, {config.locations?.join(', ') || 'Remote'})
