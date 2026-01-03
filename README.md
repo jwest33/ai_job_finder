@@ -1,6 +1,8 @@
 # AI Job Finder
 
 Scrape jobs from Indeed & Glassdoor, then match them to your resume using a local VLM, or a service API.
+  * Glassdoor searches are relatively slow to avoid aggressive rate limiting
+  * Glassdoor schema changes frequently and might result in broken searches
 
 ## Quick Start (Docker)
 
@@ -29,6 +31,11 @@ Open http://localhost:3000
 
 ```bash
 # 0. Start llama-server, or update the settings for the correct API endpoint 
+llama-server --model "D:\models\gemma-3-27b-it\gemma-3-27b-it-UD-Q6_K_XL.gguf" --no-mmap --ctx-size 32768
+```
+
+```bash
+# 0. Start llama-server for VLM when searching and hitting captchas
 llama-server --model "D:\models\gemma-3-27b-it\gemma-3-27b-it-UD-Q6_K_XL.gguf" --mmproj "D:\models\gemma-3-27b-it\mmproj-BF16.gguf" --ctx-size 32768
 ```
 

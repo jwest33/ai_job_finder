@@ -12,6 +12,7 @@ export interface MatchParams {
   source?: string;
   min_score?: number;
   full_pipeline?: boolean;
+  re_match_all?: boolean;
 }
 
 export const scraperApi = {

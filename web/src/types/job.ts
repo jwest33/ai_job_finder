@@ -75,15 +75,15 @@ export const APPLICATION_STATUS_LABELS: Record<ApplicationStatus, string> = {
 };
 
 export const APPLICATION_STATUS_COLORS: Record<ApplicationStatus, string> = {
-  not_applied: 'bg-gray-100 text-gray-700',
-  applied: 'bg-blue-100 text-blue-700',
-  phone_screen: 'bg-purple-100 text-purple-700',
-  interviewing: 'bg-yellow-100 text-yellow-700',
-  final_round: 'bg-orange-100 text-orange-700',
-  offer: 'bg-green-100 text-green-700',
-  rejected: 'bg-red-100 text-red-700',
-  withdrawn: 'bg-gray-100 text-gray-500',
-  no_response: 'bg-gray-100 text-gray-500',
+  not_applied: 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300',
+  applied: 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300',
+  phone_screen: 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300',
+  interviewing: 'bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300',
+  final_round: 'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300',
+  offer: 'bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300',
+  rejected: 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300',
+  withdrawn: 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400',
+  no_response: 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400',
 };
 
 export interface JobFilters {

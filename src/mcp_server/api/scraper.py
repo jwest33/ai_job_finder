@@ -41,6 +41,7 @@ class MatchRequest(BaseModel):
     source: Optional[str] = None
     min_score: int = 60
     full_pipeline: bool = True
+    re_match_all: bool = False
 
 
 class TaskProgress(BaseModel):
@@ -311,9 +312,16 @@ def _clean_job_dict(job: dict) -> dict:
     return cleaned
 
 
-def _run_full_match_pipeline(task_id: str, profile_name: str, source: Optional[str], min_score: int):
+def _run_full_match_pipeline(task_id: str, profile_name: str, source: Optional[str], min_score: int, re_match_all: bool = False):
     """
     Run the entire matching pipeline using the exact same JobMatcherPipeline as CLI.
+
+    Args:
+        task_id: Task ID for progress tracking
+        profile_name: Active profile name
+        source: Job source filter (e.g., "indeed", "glassdoor")
+        min_score: Minimum match score threshold
+        re_match_all: If True, re-process all jobs regardless of previous scores
     """
     import os
     import sys
@@ -365,14 +373,31 @@ def _run_full_match_pipeline(task_id: str, profile_name: str, source: Optional[s
     log("[API] Connected to llama-server")
 
     update_task(task_id, progress={"current": 15, "total": 100, "message": "Loading jobs from database..."})
-    log(f"[API] Loading jobs from database (source: {source or 'indeed'})...")
 
-    # Load jobs from database (same as CLI)
-    jobs = pipeline.load_jobs_from_db(source or "indeed")
+    # Load jobs from database
+    if re_match_all:
+        log(f"[API] Loading ALL jobs from database for re-matching (source: {source or 'indeed'})...")
+        df = pipeline.storage.load_all_jobs(source or "indeed")
+        if df is None or df.empty:
+            jobs = []
+        else:
+            jobs = df.to_dict("records")
+            # Convert array columns back to lists (DuckDB returns them as numpy arrays)
+            list_fields = ['skills', 'requirements', 'benefits', 'work_arrangements']
+            for job in jobs:
+                for field in list_fields:
+                    if field in job and job[field] is not None:
+                        try:
+                            job[field] = list(job[field]) if job[field] is not None else []
+                        except (TypeError, ValueError):
+                            job[field] = []
+    else:
+        log(f"[API] Loading unprocessed jobs from database (source: {source or 'indeed'})...")
+        jobs = pipeline.load_jobs_from_db(source or "indeed")
 
     if not jobs:
-        log("[API] No unprocessed jobs found")
-        return 0, "No unprocessed jobs found"
+        log(f"[API] No {'jobs' if re_match_all else 'unprocessed jobs'} found")
+        return 0, f"No {'jobs' if re_match_all else 'unprocessed jobs'} found"
 
     total_jobs = len(jobs)
     log(f"[API] Loaded {total_jobs} jobs")
@@ -420,7 +445,7 @@ async def run_match_task(task_id: str, params: MatchRequest):
         # Run entire pipeline in a single thread - no per-job async overhead
         processed, error = await asyncio.to_thread(
             _run_full_match_pipeline,
-            task_id, current_profile, params.source, params.min_score
+            task_id, current_profile, params.source, params.min_score, params.re_match_all
         )
 
         if error:

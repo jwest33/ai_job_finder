@@ -12,6 +12,7 @@ a unified interface for multiple AI providers.
 import os
 import json
 import ast
+import time
 import requests
 from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
@@ -67,6 +68,8 @@ class LlamaClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         request_timeout: Optional[int] = None,
+        max_retries: Optional[int] = None,
+        retry_delay: Optional[float] = None,
     ):
         """
         Initialize LlamaClient
@@ -78,10 +81,16 @@ class LlamaClient:
             temperature: Sampling temperature (default: from .env)
             max_tokens: Maximum tokens to generate (default: from .env)
             request_timeout: Request timeout in seconds (default: from .env, 300s)
+            max_retries: Maximum retry attempts on connection failure (default: 3)
+            retry_delay: Base delay between retries in seconds (default: 5.0)
         """
+        # Store all configured URLs for retry logic
+        self._all_urls: List[str] = []
+
         # Determine server URL
         if server_url:
             # Explicit parameter takes priority
+            self._all_urls = [server_url]
             self.server_url = server_url
         else:
             # Read from .env
@@ -93,9 +102,11 @@ class LlamaClient:
                 try:
                     urls = ast.literal_eval(env_url)
                     if isinstance(urls, list) and urls:
+                        self._all_urls = [url.rstrip('/') for url in urls]
                         # Try each URL and use first working one
                         self.server_url = self._try_urls(urls)
                     else:
+                        self._all_urls = [env_url]
                         self.server_url = env_url
                 except (ValueError, SyntaxError):
                     # Fall back to manual parsing for unquoted URLs
@@ -103,20 +114,25 @@ class LlamaClient:
                     url_string = env_url.strip()[1:-1]  # Remove [ and ]
                     urls = [url.strip() for url in url_string.split(',') if url.strip()]
                     if urls:
+                        self._all_urls = [url.rstrip('/') for url in urls]
                         # Try each URL and use first working one
                         self.server_url = self._try_urls(urls)
                     else:
+                        self._all_urls = ["http://localhost:8080"]
                         self.server_url = "http://localhost:8080"
             elif ',' in env_url:
                 # New format: url1,url2,url3 - comma-separated URLs
                 urls = [url.strip() for url in env_url.split(',') if url.strip()]
                 if urls:
+                    self._all_urls = [url.rstrip('/') for url in urls]
                     # Try each URL and use first working one
                     self.server_url = self._try_urls(urls)
                 else:
+                    self._all_urls = ["http://localhost:8080"]
                     self.server_url = "http://localhost:8080"
             else:
                 # Single URL
+                self._all_urls = [env_url]
                 self.server_url = env_url
 
         self.context_size = context_size or int(
@@ -125,6 +141,8 @@ class LlamaClient:
         self.temperature = temperature or float(os.getenv("LLAMA_TEMPERATURE", "0.3"))
         self.max_tokens = max_tokens or int(os.getenv("LLAMA_MAX_TOKENS", "2048"))
         self.request_timeout = request_timeout or int(os.getenv("LLAMA_REQUEST_TIMEOUT", "300"))
+        self.max_retries = max_retries if max_retries is not None else 3
+        self.retry_delay = retry_delay if retry_delay is not None else 5.0
 
         # Ensure server_url doesn't have trailing slash
         self.server_url = self.server_url.rstrip("/")
@@ -132,6 +150,8 @@ class LlamaClient:
         # Debug: Print selected URL (only once during initialization)
         if not server_url and env_url and (',' in env_url or env_url.strip().startswith('[')):
             print(f"[INFO] Selected llama-server URL: {self.server_url}")
+            if len(self._all_urls) > 1:
+                print(f"[INFO] Fallback URLs available: {self._all_urls}")
 
     def test_connection(self) -> bool:
         """

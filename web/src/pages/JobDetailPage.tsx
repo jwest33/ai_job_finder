@@ -61,7 +61,7 @@ export function JobDetailPage() {
 
   if (error || !job) {
     return (
-      <div className="bg-red-50 text-red-700 p-4 rounded-lg">
+      <div className="bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 p-4 rounded-lg">
         Failed to load job details
       </div>
     );
@@ -92,7 +92,7 @@ export function JobDetailPage() {
       {/* Back Button */}
       <Link
         to="/jobs"
-        className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900"
+        className="inline-flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
       >
         <ArrowLeft className="w-4 h-4" />
         Back to Jobs
@@ -108,31 +108,31 @@ export function JobDetailPage() {
                 <img
                   src={job.company_logo_url}
                   alt={job.company}
-                  className="w-16 h-16 rounded-lg object-contain bg-gray-50"
+                  className="w-16 h-16 rounded-lg object-contain bg-gray-50 dark:bg-gray-700"
                 />
               ) : (
-                <div className="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center">
+                <div className="w-16 h-16 rounded-lg bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
                   <Building2 className="w-8 h-8 text-gray-400" />
                 </div>
               )}
               <div className="flex-1">
-                <h1 className="text-2xl font-bold text-gray-900">{job.title}</h1>
+                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{job.title}</h1>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="text-lg text-gray-700">{job.company}</span>
+                  <span className="text-lg text-gray-700 dark:text-gray-300">{job.company}</span>
                   {job.company_rating && (
-                    <span className="flex items-center gap-1 text-yellow-600">
+                    <span className="flex items-center gap-1 text-yellow-600 dark:text-yellow-500">
                       <Star className="w-4 h-4 fill-current" />
                       {job.company_rating.toFixed(1)}
                     </span>
                   )}
                 </div>
-                <div className="flex flex-wrap items-center gap-4 mt-3 text-gray-500">
+                <div className="flex flex-wrap items-center gap-4 mt-3 text-gray-500 dark:text-gray-400">
                   <span className="flex items-center gap-1">
                     <MapPin className="w-4 h-4" />
                     {job.location}
                   </span>
                   {job.remote && (
-                    <span className="flex items-center gap-1 text-green-600">
+                    <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
                       <Wifi className="w-4 h-4" />
                       Remote
                     </span>
@@ -154,7 +154,7 @@ export function JobDetailPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3 mt-6 pt-6 border-t">
+            <div className="flex items-center gap-3 mt-6 pt-6 border-t border-gray-100 dark:border-gray-700">
               <JobStatusDropdown
                 status={job.application_status || 'not_applied'}
                 onChange={handleStatusChange}
@@ -180,7 +180,7 @@ export function JobDetailPage() {
               </div>
             </div>
             {job.match_explanation && (
-              <p className="mt-4 text-sm text-gray-600">{job.match_explanation}</p>
+              <p className="mt-4 text-sm text-gray-600 dark:text-gray-400">{job.match_explanation}</p>
             )}
           </Card>
         </div>
@@ -193,7 +193,7 @@ export function JobDetailPage() {
             <Card>
               <CardTitle>Gap Analysis</CardTitle>
               <div className="mt-4 space-y-4 text-sm">
-                <div className="prose prose-sm max-w-none text-gray-600">
+                <div className="prose prose-sm dark:prose-invert max-w-none text-gray-600 dark:text-gray-300">
                   {job.gap_analysis.split('\n').map((line, i) => (
                     <p key={i} className="flex items-start gap-2">
                       {line.includes('Strength') || line.includes('+') ? (
@@ -214,7 +214,7 @@ export function JobDetailPage() {
           {job.resume_suggestions && (
             <Card>
               <CardTitle>Resume Suggestions</CardTitle>
-              <div className="mt-4 text-sm text-gray-600 whitespace-pre-wrap">
+              <div className="mt-4 text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap">
                 {job.resume_suggestions}
               </div>
             </Card>
@@ -266,8 +266,8 @@ export function JobDetailPage() {
             <CardTitle>Requirements</CardTitle>
             <ul className="mt-4 space-y-2">
               {job.requirements.map((req, i) => (
-                <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
-                  <span className="text-gray-400">•</span>
+                <li key={i} className="flex items-start gap-2 text-sm text-gray-600 dark:text-gray-300">
+                  <span className="text-gray-400 dark:text-gray-500">•</span>
                   {req}
                 </li>
               ))}
@@ -294,7 +294,7 @@ export function JobDetailPage() {
       {job.description && (
         <Card>
           <CardTitle>Job Description</CardTitle>
-          <div className="mt-4 prose prose-sm max-w-none text-gray-600">
+          <div className="mt-4 prose prose-sm dark:prose-invert max-w-none text-gray-600 dark:text-gray-300 prose-headings:text-gray-900 dark:prose-headings:text-white prose-strong:text-gray-900 dark:prose-strong:text-white prose-li:marker:text-gray-400 dark:prose-li:marker:text-gray-500">
             <ReactMarkdown>{job.description}</ReactMarkdown>
           </div>
         </Card>
