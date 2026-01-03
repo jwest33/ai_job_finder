@@ -443,8 +443,9 @@ SITE_CONFIGS = {
 
 # VLM Scraper Configuration
 # Enable VLM-based Glassdoor scraper (uses visual automation instead of GraphQL)
-# Falls back to GraphQL if VLM is unavailable
-USE_VLM_GLASSDOOR = os.getenv("USE_VLM_GLASSDOOR", "true").lower() == "true"
+# VLM requires local desktop environment (won't work in Docker)
+# Only needed if Glassdoor starts throwing captchas
+USE_VLM_GLASSDOOR = os.getenv("USE_VLM_GLASSDOOR", "false").lower() == "true"
 
 # Maximum actions the VLM agent can take per scraping session
 VLM_MAX_ACTIONS = int(os.getenv("VLM_MAX_ACTIONS", "100"))

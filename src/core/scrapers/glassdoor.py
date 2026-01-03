@@ -219,39 +219,40 @@ class GlassdoorScraper(BaseScraper):
             self._stealth_ctx = None
             self.playwright = await async_playwright().start()
 
-        # Launch browser - try system Chrome first
+        # Launch browser
         if not self.browser:
             browser_launched = False
+            browser_args = [
+                '--disable-blink-features=AutomationControlled',
+                '--disable-dev-shm-usage',
+                '--no-sandbox',
+            ]
 
-            # Try Chrome
-            try:
-                print("[INFO] Trying system Chrome...")
-                self.browser = await self.playwright.chromium.launch(
-                    headless=True,
-                    channel="chrome",
-                    args=[
-                        '--disable-blink-features=AutomationControlled',
-                        '--disable-dev-shm-usage',
-                        '--no-sandbox',
-                    ]
-                )
-                print("[OK] Using system Chrome")
-                browser_launched = True
-            except Exception as e:
-                print(f"[INFO] Chrome not available: {e}")
+            # Check if running in Docker (skip Chrome/Edge, use bundled Chromium directly)
+            in_docker = os.path.exists('/.dockerenv') or os.getenv('RUNNING_IN_DOCKER')
 
-            # Try Edge
-            if not browser_launched:
+            # Try Chrome (skip in Docker)
+            if not in_docker:
+                try:
+                    print("[INFO] Trying system Chrome...")
+                    self.browser = await self.playwright.chromium.launch(
+                        headless=True,
+                        channel="chrome",
+                        args=browser_args
+                    )
+                    print("[OK] Using system Chrome")
+                    browser_launched = True
+                except Exception as e:
+                    print(f"[INFO] Chrome not available: {e}")
+
+            # Try Edge (skip in Docker)
+            if not browser_launched and not in_docker:
                 try:
                     print("[INFO] Trying MS Edge...")
                     self.browser = await self.playwright.chromium.launch(
                         headless=True,
                         channel="msedge",
-                        args=[
-                            '--disable-blink-features=AutomationControlled',
-                            '--disable-dev-shm-usage',
-                            '--no-sandbox',
-                        ]
+                        args=browser_args
                     )
                     print("[OK] Using MS Edge")
                     browser_launched = True
@@ -260,16 +261,12 @@ class GlassdoorScraper(BaseScraper):
 
             # Try bundled Chromium (requires playwright install)
             if not browser_launched:
-                print("[INFO] Trying bundled Chromium...")
+                print("[INFO] Using bundled Chromium...")
                 self.browser = await self.playwright.chromium.launch(
                     headless=True,
-                    args=[
-                        '--disable-blink-features=AutomationControlled',
-                        '--disable-dev-shm-usage',
-                        '--no-sandbox',
-                    ]
+                    args=browser_args
                 )
-                print("[OK] Using bundled Chromium")
+                print("[OK] Chromium launched")
 
         # Get proxy configuration with current session ID
         proxy_config = self._get_current_proxy()

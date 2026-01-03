@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# Node
+web/node_modules/
+web/.vite/
+
+# Data (mounted as volumes)
+profiles/
+backup/
+credentials/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Misc
+*.log
+.DS_Store
+Thumbs.db
+docs/
+*.md
+!README.md
+
+# Environment (mounted separately)
+.env
+.env.*

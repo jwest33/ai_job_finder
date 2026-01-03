@@ -1,0 +1,50 @@
+# =============================================================================
+# AI Job Finder - Docker Compose Configuration
+# =============================================================================
+#
+# AI Backend Options (configure in .env):
+#
+#   Option 1: Local llama-server on host machine
+#     LLAMA_SERVER_URL=http://host.docker.internal:8080
+#
+#   Option 2: OpenAI API (or compatible endpoint)
+#     OPENAI_API_KEY=sk-your-key-here
+#     LLAMA_SERVER_URL=https://api.openai.com/v1
+#
+#   Option 3: Other OpenAI-compatible APIs (Ollama, LM Studio, etc.)
+#     LLAMA_SERVER_URL=http://host.docker.internal:11434/v1
+#
+# =============================================================================
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-job-finder
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Bind to all interfaces for external access
+      - MCP_SERVER_HOST=0.0.0.0
+    env_file:
+      - .env
+    volumes:
+      # Persistent profile data (databases, templates, reports)
+      - ./profiles:/app/profiles
+      # Mount .env for profile switching (writes ACTIVE_PROFILE)
+      - ./.env:/app/.env
+      # Mount settings files
+      - ./ai_settings.json:/app/ai_settings.json
+      - ./threshold_settings.json:/app/threshold_settings.json
+    extra_hosts:
+      # Enables host.docker.internal on Linux (already works on Windows/Mac)
+      # Required for connecting to llama-server/Ollama running on host
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
