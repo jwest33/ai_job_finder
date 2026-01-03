@@ -5,6 +5,7 @@ import {
   FileText,
   Search,
   ClipboardList,
+  Settings,
 } from 'lucide-react';
 import { useUiStore } from '../../store/uiStore';
 import clsx from 'clsx';
@@ -15,6 +16,7 @@ const navItems = [
   { to: '/applications', icon: ClipboardList, label: 'Applications' },
   { to: '/search', icon: Search, label: 'Search' },
   { to: '/templates', icon: FileText, label: 'Templates' },
+  { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
 export function Sidebar() {

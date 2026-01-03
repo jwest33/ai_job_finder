@@ -12,6 +12,7 @@ from .attachments import router as attachments_router
 from .templates import router as templates_router
 from .scraper import router as scraper_router
 from .system import router as system_router
+from .ai import router as ai_router
 
 # Create main API router
 api_router = APIRouter(prefix="/api/v1")
@@ -23,3 +24,4 @@ api_router.include_router(attachments_router, prefix="/attachments", tags=["atta
 api_router.include_router(templates_router, prefix="/templates", tags=["templates"])
 api_router.include_router(scraper_router, prefix="/scraper", tags=["scraper"])
 api_router.include_router(system_router, prefix="/system", tags=["system"])
+api_router.include_router(ai_router, prefix="/ai", tags=["ai"])

@@ -501,15 +501,18 @@ class GlassdoorScraper(BaseScraper):
 
             print(f"→ Navigating to Glassdoor page for token extraction...")
 
-            # Navigate to page
-            response = await page.goto(url, wait_until="networkidle", timeout=30000)
+            # Navigate to page - use domcontentloaded instead of networkidle
+            # networkidle waits for ALL network requests to finish which times out
+            # due to Glassdoor's many trackers and third-party scripts
+            response = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
             if response.status != 200:
                 print(f"[WARNING] Page returned status {response.status}")
                 # Continue anyway - we might still get cookies
 
-            # Wait for JavaScript execution
-            await page.wait_for_timeout(3000)
+            # Wait for cookies to be set and JavaScript to initialize
+            # The gdId cookie is typically set quickly after page load
+            await page.wait_for_timeout(2000)
 
             # Method 1: Try to extract token from cookies first (most reliable)
             print("→ Checking cookies for CSRF token...")

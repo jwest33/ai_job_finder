@@ -6,6 +6,7 @@ import { TemplatesPage } from './pages/TemplatesPage';
 import { SearchPage } from './pages/SearchPage';
 import { ApplicationsPage } from './pages/ApplicationsPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { SettingsPage } from './pages/SettingsPage';
 import { Toaster } from './components/common/Toaster';
 
 function App() {
@@ -20,6 +21,7 @@ function App() {
           <Route path="/applications" element={<ApplicationsPage />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/templates" element={<TemplatesPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </Layout>
       <Toaster />

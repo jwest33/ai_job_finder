@@ -30,6 +30,8 @@ ENV/
 .idea/
 *.swp
 *.swo
+.claude/
+CLAUDE.md
 
 # Environment variables
 .env

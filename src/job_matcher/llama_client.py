@@ -3,6 +3,10 @@ LlamaClient - API client for communicating with llama-server
 
 Provides a clean interface for sending prompts to llama-server and
 receiving AI-generated responses.
+
+Note: This module is maintained for backwards compatibility.
+For new code, prefer using `src.ai.get_ai_provider()` which provides
+a unified interface for multiple AI providers.
 """
 
 import os
@@ -599,6 +603,19 @@ class LlamaClient:
         except Exception as e:
             print(f"X Failed to get model info: {e}")
             return None
+
+
+def get_llama_client() -> LlamaClient:
+    """
+    Get a LlamaClient instance.
+
+    For new code, prefer using `src.ai.get_ai_provider()` instead,
+    which provides a unified interface for multiple AI providers.
+
+    Returns:
+        LlamaClient instance configured from environment
+    """
+    return LlamaClient()
 
 
 if __name__ == "__main__":

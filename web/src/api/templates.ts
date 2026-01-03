@@ -1,5 +1,5 @@
 import { apiClient, handleApiError } from './client';
-import type { ResumeContent, RequirementsContent, TemplateValidation } from '../types/template';
+import type { ResumeContent, RequirementsContent, TemplateValidation, ATSScoreResult, ResumeUploadResponse, ParsedResume } from '../types/template';
 
 export const templatesApi = {
   async getResume(): Promise<ResumeContent> {
@@ -39,6 +39,37 @@ export const templatesApi = {
   async validate(): Promise<TemplateValidation> {
     try {
       const response = await apiClient.post('/templates/validate');
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  async uploadResume(file: File): Promise<ResumeUploadResponse> {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await apiClient.post('/templates/resume/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  async getATSScore(): Promise<ATSScoreResult> {
+    try {
+      const response = await apiClient.post('/templates/resume/ats-score');
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  async parseResume(): Promise<ParsedResume> {
+    try {
+      const response = await apiClient.post('/templates/resume/parse');
       return response.data;
     } catch (error) {
       handleApiError(error);

@@ -4,10 +4,11 @@ Templates API Endpoints
 REST endpoints for resume and requirements management.
 """
 
+import re
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any, List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 import yaml
 from dotenv import load_dotenv
@@ -59,6 +60,69 @@ class TemplateValidation(BaseModel):
     """Template validation response"""
     resume: ValidationResult
     requirements: ValidationResult
+
+
+class ATSCategoryResult(BaseModel):
+    """ATS score for a single category"""
+    score: int
+    issues: List[str]
+    recommendations: List[str]
+
+
+class ATSScoreResponse(BaseModel):
+    """ATS scoring response"""
+    overall_score: int
+    categories: Dict[str, ATSCategoryResult]
+    summary: str
+    top_recommendations: List[str]
+
+
+class ResumeUploadResponse(BaseModel):
+    """Response after uploading a resume"""
+    success: bool
+    content: str
+    message: str
+
+
+# Resume parsing models (matching Pydantic models in resume_parser.py)
+class ContactInfoResponse(BaseModel):
+    """Contact information from parsed resume"""
+    name: str = ""
+    email: str = ""
+    phone: str = ""
+    location: str = ""
+    linkedin: str = ""
+    website: str = ""
+
+
+class ExperienceEntryResponse(BaseModel):
+    """Work experience entry from parsed resume"""
+    title: str = ""
+    company: str = ""
+    start_date: str = ""
+    end_date: str = ""
+    location: str = ""
+    bullets: List[str] = []
+
+
+class EducationEntryResponse(BaseModel):
+    """Education entry from parsed resume"""
+    degree: str = ""
+    school: str = ""
+    year: str = ""
+    gpa: str = ""
+    honors: str = ""
+
+
+class ParsedResumeResponse(BaseModel):
+    """Complete parsed resume structure"""
+    contact: ContactInfoResponse
+    summary: str = ""
+    experience: List[ExperienceEntryResponse] = []
+    education: List[EducationEntryResponse] = []
+    skills: List[str] = []
+    certifications: List[str] = []
+    languages: List[str] = []
 
 
 def get_file_info(path: Path) -> tuple[bool, Optional[int], Optional[str]]:
@@ -213,3 +277,285 @@ async def validate_templates():
             errors=req_errors if req_errors else None,
         ),
     )
+
+
+def extract_text_from_docx(file_content: bytes) -> str:
+    """
+    Extract plain text from a .docx file.
+
+    Args:
+        file_content: Raw bytes of the .docx file
+
+    Returns:
+        Extracted and cleaned text content
+    """
+    try:
+        from docx import Document
+        from io import BytesIO
+
+        doc = Document(BytesIO(file_content))
+
+        # Extract text from paragraphs
+        paragraphs = []
+        for para in doc.paragraphs:
+            text = para.text.strip()
+            if text:
+                paragraphs.append(text)
+
+        # Extract text from tables
+        for table in doc.tables:
+            for row in table.rows:
+                row_text = []
+                for cell in row.cells:
+                    cell_text = cell.text.strip()
+                    if cell_text:
+                        row_text.append(cell_text)
+                if row_text:
+                    paragraphs.append(" | ".join(row_text))
+
+        # Join with double newlines for readability
+        content = "\n\n".join(paragraphs)
+
+        # Clean up excessive whitespace
+        content = re.sub(r'\n{3,}', '\n\n', content)
+        content = re.sub(r' {2,}', ' ', content)
+
+        return content.strip()
+
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="python-docx library not installed. Run: pip install python-docx"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to parse .docx file: {str(e)}"
+        )
+
+
+@router.post("/resume/upload", response_model=ResumeUploadResponse)
+async def upload_resume(file: UploadFile = File(...)):
+    """
+    Upload a .docx resume file, extract text, and save as resume.txt
+
+    The uploaded file must be a .docx file. The extracted text will
+    replace the current resume content.
+    """
+    # Validate file extension
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
+
+    filename_lower = file.filename.lower()
+    if not filename_lower.endswith('.docx'):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid file type. Only .docx files are supported."
+        )
+
+    # Validate file size (max 10MB)
+    MAX_SIZE = 10 * 1024 * 1024
+    content = await file.read()
+    if len(content) > MAX_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large. Maximum size is 10MB."
+        )
+
+    # Extract text from docx
+    extracted_text = extract_text_from_docx(content)
+
+    if not extracted_text:
+        raise HTTPException(
+            status_code=400,
+            detail="No text content found in the document."
+        )
+
+    # Save to resume.txt
+    paths = get_current_profile_paths()
+    resume_path = paths.resume_path
+
+    # Ensure templates directory exists
+    resume_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Write content
+    resume_path.write_text(extracted_text, encoding='utf-8')
+
+    return ResumeUploadResponse(
+        success=True,
+        content=extracted_text,
+        message=f"Resume uploaded and extracted from {file.filename}"
+    )
+
+
+@router.post("/resume/ats-score", response_model=ATSScoreResponse)
+async def score_resume_ats():
+    """
+    Run ATS quality scoring on the current resume.
+
+    Analyzes the resume for ATS compatibility including:
+    - Keyword optimization
+    - Formatting compatibility
+    - Section structure
+    - Quantified achievements
+    - Contact information
+    - Skills presentation
+
+    Requires llama-server to be running.
+    """
+    paths = get_current_profile_paths()
+    resume_path = paths.resume_path
+
+    if not resume_path.exists():
+        raise HTTPException(status_code=404, detail="Resume file not found")
+
+    content = resume_path.read_text(encoding='utf-8')
+
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="Resume is empty")
+
+    # Import and run ATS scorer
+    try:
+        from src.job_matcher.ats_scorer import ATSScorer
+
+        scorer = ATSScorer()
+
+        # Check connection first
+        if not scorer.test_connection():
+            raise HTTPException(
+                status_code=503,
+                detail="AI server (llama-server) is not available. Please ensure it is running."
+            )
+
+        result = scorer.score_resume(content)
+
+        if not result:
+            raise HTTPException(
+                status_code=500,
+                detail="ATS scoring failed. Please try again."
+            )
+
+        # Convert to response model
+        categories = {}
+        for name, cat in result.categories.items():
+            categories[name] = ATSCategoryResult(
+                score=cat.score,
+                issues=cat.issues,
+                recommendations=cat.recommendations
+            )
+
+        return ATSScoreResponse(
+            overall_score=result.overall_score,
+            categories=categories,
+            summary=result.summary,
+            top_recommendations=result.top_recommendations
+        )
+
+    except ImportError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to import ATS scorer: {str(e)}"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"ATS scoring error: {str(e)}"
+        )
+
+
+@router.post("/resume/parse", response_model=ParsedResumeResponse)
+async def parse_resume():
+    """
+    Parse the current resume into structured data using AI.
+
+    Uses LLM with Pydantic schema enforcement to extract:
+    - Contact information (name, email, phone, location, LinkedIn)
+    - Professional summary
+    - Work experience with accomplishments
+    - Education history
+    - Skills, certifications, languages
+
+    Requires llama-server to be running.
+    """
+    paths = get_current_profile_paths()
+    resume_path = paths.resume_path
+
+    if not resume_path.exists():
+        raise HTTPException(status_code=404, detail="Resume file not found")
+
+    content = resume_path.read_text(encoding='utf-8')
+
+    if not content.strip():
+        raise HTTPException(status_code=400, detail="Resume is empty")
+
+    try:
+        from src.job_matcher.resume_parser import ResumeParser
+
+        parser = ResumeParser()
+
+        # Check connection first
+        if not parser.test_connection():
+            raise HTTPException(
+                status_code=503,
+                detail="AI server (llama-server) is not available. Please ensure it is running."
+            )
+
+        result = parser.parse(content)
+
+        if not result:
+            raise HTTPException(
+                status_code=500,
+                detail="Resume parsing failed. Please try again."
+            )
+
+        # Convert to response model
+        return ParsedResumeResponse(
+            contact=ContactInfoResponse(
+                name=result.contact.name,
+                email=result.contact.email,
+                phone=result.contact.phone,
+                location=result.contact.location,
+                linkedin=result.contact.linkedin,
+                website=result.contact.website
+            ),
+            summary=result.summary,
+            experience=[
+                ExperienceEntryResponse(
+                    title=exp.title,
+                    company=exp.company,
+                    start_date=exp.start_date,
+                    end_date=exp.end_date,
+                    location=exp.location,
+                    bullets=exp.bullets
+                )
+                for exp in result.experience
+            ],
+            education=[
+                EducationEntryResponse(
+                    degree=edu.degree,
+                    school=edu.school,
+                    year=edu.year,
+                    gpa=edu.gpa,
+                    honors=edu.honors
+                )
+                for edu in result.education
+            ],
+            skills=result.skills,
+            certifications=result.certifications,
+            languages=result.languages
+        )
+
+    except ImportError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to import resume parser: {str(e)}"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Resume parsing error: {str(e)}"
+        )

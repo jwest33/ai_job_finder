@@ -52,7 +52,7 @@ Edit the following files:
 # Start llama-server on localhost:8080 (required for job matching)
 llama-server --model /path/to/model.gguf --ctx-size 65536 --cache-type-k q8_0 --cache-type-v q8_0 --port 8080
 
-llama-server --model "D:\models\gemma-3-27b-it\gemma-3-27b-it-UD-Q6_K_XL.gguf" --ctx-size 65536 --cache-type-k q8_0 --cache-type-v q8_0 --no-mapp
+llama-server --model "D:\models\gemma-3-27b-it\gemma-3-27b-it-UD-Q6_K_XL.gguf" --ctx-size 65536 --cache-type-k q8_0 --cache-type-v q8_0 --no-mmap
 ```
 
 ### 5. Setup Email Delivery (Optional)

@@ -91,6 +91,16 @@ class GlassdoorVLMScraper(BaseScraper):
     def _init_vlm(self) -> bool:
         """Initialize VLM components."""
         try:
+            # First check if vision is available from AI settings
+            try:
+                from src.vlm.config import is_vision_available
+                if not is_vision_available():
+                    logger.info("VLM disabled: vision not available in AI settings")
+                    self.vlm_available = False
+                    return False
+            except ImportError:
+                pass  # Vision check not available, continue with VLM init
+
             from src.vlm import Agent, config as vlm_config
 
             self._Agent = Agent
@@ -107,10 +117,14 @@ class GlassdoorVLMScraper(BaseScraper):
     def _start_browser(self) -> bool:
         """Start Playwright browser for this scrape session."""
         try:
-            print("[VLM] Creating browser...", flush=True)
+            # Use headless mode if VLM is not available (VLM needs visible window for screenshots)
+            use_headless = not self.vlm_available
+            mode_str = "headless" if use_headless else "visible (VLM)"
+            print(f"[VLM] Creating browser ({mode_str})...", flush=True)
+
             self._playwright = sync_playwright().start()
             self.browser = self._playwright.chromium.launch(
-                headless=False,
+                headless=use_headless,
                 args=[
                     "--start-maximized",
                     "--disable-blink-features=AutomationControlled",
@@ -131,6 +145,10 @@ class GlassdoorVLMScraper(BaseScraper):
 
     def _maximize_and_focus_browser(self):
         """Maximize browser window and bring to foreground using Windows API."""
+        # Skip if running headless (no window to maximize)
+        if not self.vlm_available:
+            return
+
         try:
             import ctypes
             from ctypes import wintypes
@@ -377,31 +395,106 @@ class GlassdoorVLMScraper(BaseScraper):
             True if a blocking popup is detected
         """
         try:
-            # Common popup/modal selectors on Glassdoor
-            popup_selectors = [
-                '[data-test="modal"]',
-                '[class*="modal"]',
-                '[class*="Modal"]',
-                '[class*="overlay"]',
-                '[class*="Overlay"]',
-                '[role="dialog"]',
-                '[aria-modal="true"]',
-                '.hardsellOverlay',
-                '#HardsellOverlay',
-                '[class*="SignUp"]',
-                '[class*="signUp"]',
-                '[class*="jobAlert"]',
-                '[class*="JobAlert"]',
-            ]
+            # Use JavaScript to detect actual blocking modals
+            is_blocked = self.page.evaluate("""
+                () => {
+                    // Method 1: Look for known modal selectors
+                    const modalSelectors = [
+                        '[data-test="modal"]',
+                        '[role="dialog"][aria-modal="true"]',
+                        '[role="dialog"]',
+                        '.hardsellOverlay',
+                        '#HardsellOverlay',
+                    ];
 
-            for selector in popup_selectors:
-                try:
-                    element = self.page.query_selector(selector)
-                    if element and element.is_visible():
-                        print(f"[VLM] Detected blocking popup: {selector}", flush=True)
-                        return True
-                except:
-                    continue
+                    for (const selector of modalSelectors) {
+                        const el = document.querySelector(selector);
+                        if (el) {
+                            const style = window.getComputedStyle(el);
+                            const rect = el.getBoundingClientRect();
+
+                            if (style.display !== 'none' &&
+                                style.visibility !== 'hidden' &&
+                                parseFloat(style.opacity) > 0 &&
+                                rect.width > 200 && rect.height > 200) {
+                                return { blocked: true, selector: selector, method: 'modal_selector' };
+                            }
+                        }
+                    }
+
+                    // Method 2: Check for fixed/absolute overlays covering the viewport
+                    const overlays = document.querySelectorAll('[class*="overlay"], [class*="Overlay"], [class*="modal"], [class*="Modal"]');
+                    for (const el of overlays) {
+                        const style = window.getComputedStyle(el);
+                        const rect = el.getBoundingClientRect();
+
+                        const isPositioned = style.position === 'fixed' || style.position === 'absolute';
+                        const coversScreen = rect.width > window.innerWidth * 0.5 && rect.height > window.innerHeight * 0.5;
+                        const isVisible = style.display !== 'none' && style.visibility !== 'hidden' && parseFloat(style.opacity) > 0;
+
+                        if (isPositioned && coversScreen && isVisible) {
+                            return { blocked: true, selector: el.className, method: 'overlay' };
+                        }
+                    }
+
+                    // Method 3: Check for semi-transparent backdrop (sign-up modals)
+                    const allElements = document.querySelectorAll('*');
+                    for (const el of allElements) {
+                        const style = window.getComputedStyle(el);
+                        const rect = el.getBoundingClientRect();
+
+                        // Look for full-screen semi-transparent backdrop
+                        if ((style.position === 'fixed' || style.position === 'absolute') &&
+                            rect.width >= window.innerWidth * 0.9 &&
+                            rect.height >= window.innerHeight * 0.9) {
+
+                            const bgColor = style.backgroundColor;
+                            // Check for semi-transparent background (rgba with alpha < 1)
+                            if (bgColor.includes('rgba') && !bgColor.includes(', 0)') && !bgColor.includes(',0)')) {
+                                const alphaMatch = bgColor.match(/,\\s*([\\d.]+)\\s*\\)$/);
+                                if (alphaMatch && parseFloat(alphaMatch[1]) > 0.1 && parseFloat(alphaMatch[1]) < 1) {
+                                    return { blocked: true, selector: 'backdrop', method: 'backdrop' };
+                                }
+                            }
+                        }
+                    }
+
+                    // Method 4: Check for sign-up modal text content
+                    const signupTexts = [
+                        'Never Miss an Opportunity',
+                        'Create a job alert',
+                        'Continue with Google',
+                        'Continue with Apple',
+                        'Continue with email',
+                        'Sign up to view',
+                    ];
+
+                    for (const text of signupTexts) {
+                        if (document.body.innerText.includes(text)) {
+                            // Verify there's actually a modal-like container visible
+                            const containers = document.querySelectorAll('div');
+                            for (const container of containers) {
+                                const style = window.getComputedStyle(container);
+                                const rect = container.getBoundingClientRect();
+
+                                // Look for centered white card (typical modal)
+                                if (style.backgroundColor === 'rgb(255, 255, 255)' &&
+                                    rect.width > 300 && rect.width < 600 &&
+                                    rect.height > 300 &&
+                                    rect.left > 100) {
+                                    return { blocked: true, selector: text, method: 'signup_text' };
+                                }
+                            }
+                        }
+                    }
+
+                    return { blocked: false };
+                }
+            """)
+
+            if is_blocked.get('blocked'):
+                print(f"[VLM] Detected blocking popup ({is_blocked.get('method')}): {is_blocked.get('selector')}", flush=True)
+                return True
 
             return False
 
@@ -418,7 +511,89 @@ class GlassdoorVLMScraper(BaseScraper):
         """
         print("[VLM] Attempting to dismiss popup via DOM...", flush=True)
 
-        # Common close button selectors
+        # Strategy 1: Try Escape key first (most reliable for modals)
+        try:
+            print("[VLM] Trying Escape key to dismiss popup...", flush=True)
+            self.page.keyboard.press("Escape")
+            time.sleep(1.5)
+
+            if not self._detect_blocking_popup():
+                print("[VLM] Popup dismissed via Escape key", flush=True)
+                return True
+        except:
+            pass
+
+        # Strategy 2: Find and click X/close buttons using JavaScript
+        # This is more reliable than DOM selectors for dynamically-styled buttons
+        try:
+            clicked = self.page.evaluate("""
+                () => {
+                    // Find all buttons and clickable elements
+                    const clickables = document.querySelectorAll('button, [role="button"], svg, [class*="close"], [class*="Close"]');
+
+                    for (const el of clickables) {
+                        const rect = el.getBoundingClientRect();
+                        const style = window.getComputedStyle(el);
+
+                        // Skip invisible elements
+                        if (style.display === 'none' || style.visibility === 'hidden' || rect.width === 0) {
+                            continue;
+                        }
+
+                        // Look for X button characteristics:
+                        // - Small size (typical close buttons are 20-50px)
+                        // - Contains X, close, or has aria-label
+                        // - Positioned in top-right area of a modal
+                        const isSmall = rect.width < 60 && rect.height < 60;
+                        const hasCloseIndicator = (
+                            el.getAttribute('aria-label')?.toLowerCase().includes('close') ||
+                            el.className?.toLowerCase().includes('close') ||
+                            el.innerHTML?.includes('×') ||
+                            el.innerHTML?.includes('&times;') ||
+                            el.textContent?.trim() === '×' ||
+                            el.textContent?.trim() === 'X' ||
+                            el.tagName === 'SVG'
+                        );
+
+                        // Check if it's in the upper right quadrant of the viewport
+                        const inUpperRight = rect.right > window.innerWidth * 0.5 && rect.top < window.innerHeight * 0.5;
+
+                        if (isSmall && (hasCloseIndicator || inUpperRight)) {
+                            // Check if this element is inside or near a modal-like container
+                            let parent = el.parentElement;
+                            let inModal = false;
+                            for (let i = 0; i < 10 && parent; i++) {
+                                const parentStyle = window.getComputedStyle(parent);
+                                const parentRect = parent.getBoundingClientRect();
+                                if (parentStyle.backgroundColor === 'rgb(255, 255, 255)' &&
+                                    parentRect.width > 300 && parentRect.height > 200) {
+                                    inModal = true;
+                                    break;
+                                }
+                                parent = parent.parentElement;
+                            }
+
+                            if (inModal || hasCloseIndicator) {
+                                console.log('Clicking potential close button:', el);
+                                el.click();
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                }
+            """)
+
+            if clicked:
+                print("[VLM] Clicked close button via JS", flush=True)
+                time.sleep(1.5)
+                if not self._detect_blocking_popup():
+                    print("[VLM] Popup dismissed via JS click", flush=True)
+                    return True
+        except Exception as e:
+            print(f"[VLM] JS close button click failed: {e}", flush=True)
+
+        # Strategy 3: Common close button selectors
         close_selectors = [
             'button[aria-label="Close"]',
             'button[aria-label="close"]',
@@ -437,8 +612,6 @@ class GlassdoorVLMScraper(BaseScraper):
             'button:has-text("Dismiss")',
             'button:has-text("Not now")',
             'button:has-text("Maybe later")',
-            # X button patterns
-            'button[class*="close"] svg',
             '[role="dialog"] button:first-child',
         ]
 
@@ -450,45 +623,22 @@ class GlassdoorVLMScraper(BaseScraper):
                     element.click()
                     time.sleep(1)
 
-                    # Check if popup is gone
                     if not self._detect_blocking_popup():
                         print("[VLM] Popup dismissed successfully via DOM", flush=True)
                         return True
             except:
                 continue
 
-        # Try pressing Escape key
+        # Strategy 4: Click on backdrop/overlay to dismiss
         try:
-            print("[VLM] Trying Escape key to dismiss popup...", flush=True)
-            self.page.keyboard.press("Escape")
+            # Click in the corner of the viewport (outside modal)
+            print("[VLM] Clicking viewport corner to dismiss modal...", flush=True)
+            self.page.mouse.click(50, 50)
             time.sleep(1)
 
             if not self._detect_blocking_popup():
-                print("[VLM] Popup dismissed via Escape key", flush=True)
+                print("[VLM] Popup dismissed by clicking outside", flush=True)
                 return True
-        except:
-            pass
-
-        # Try clicking outside the modal (on the overlay)
-        try:
-            overlay_selectors = [
-                '[class*="overlay"]',
-                '[class*="Overlay"]',
-                '.modal-backdrop',
-            ]
-            for selector in overlay_selectors:
-                overlay = self.page.query_selector(selector)
-                if overlay and overlay.is_visible():
-                    print(f"[VLM] Clicking overlay to dismiss: {selector}", flush=True)
-                    # Click at the edge of the overlay
-                    box = overlay.bounding_box()
-                    if box:
-                        self.page.mouse.click(box['x'] + 10, box['y'] + 10)
-                        time.sleep(1)
-
-                        if not self._detect_blocking_popup():
-                            print("[VLM] Popup dismissed by clicking overlay", flush=True)
-                            return True
         except:
             pass
 

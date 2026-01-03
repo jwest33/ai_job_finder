@@ -48,3 +48,66 @@ export interface TemplateValidation {
     errors?: string[];
   };
 }
+
+export interface ATSCategoryResult {
+  score: number;
+  issues: string[];
+  recommendations: string[];
+}
+
+export interface ATSScoreResult {
+  overall_score: number;
+  categories: {
+    keywords: ATSCategoryResult;
+    formatting: ATSCategoryResult;
+    sections: ATSCategoryResult;
+    achievements: ATSCategoryResult;
+    contact_info: ATSCategoryResult;
+    skills: ATSCategoryResult;
+  };
+  summary: string;
+  top_recommendations: string[];
+}
+
+export interface ResumeUploadResponse {
+  success: boolean;
+  content: string;
+  message: string;
+}
+
+// Parsed resume types (from AI parser)
+export interface ContactInfo {
+  name: string;
+  email: string;
+  phone: string;
+  location: string;
+  linkedin: string;
+  website: string;
+}
+
+export interface ExperienceEntry {
+  title: string;
+  company: string;
+  start_date: string;
+  end_date: string;
+  location: string;
+  bullets: string[];
+}
+
+export interface EducationEntry {
+  degree: string;
+  school: string;
+  year: string;
+  gpa: string;
+  honors: string;
+}
+
+export interface ParsedResume {
+  contact: ContactInfo;
+  summary: string;
+  experience: ExperienceEntry[];
+  education: EducationEntry[];
+  skills: string[];
+  certifications: string[];
+  languages: string[];
+}

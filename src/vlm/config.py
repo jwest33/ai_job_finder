@@ -1,12 +1,51 @@
 """
 Configuration for VLM visual automation module.
 
-Uses Gemma 3 12B IT vision model for both scraping and AI matching.
+Uses vision-capable models for visual web automation.
+Configuration can be set via ai_settings.json or environment variables.
 """
 
 import os
 from dataclasses import dataclass, field
 from typing import Optional
+from urllib.parse import urlparse
+
+
+def _get_ai_settings_url() -> tuple[str, int]:
+    """
+    Get host and port from AI settings or environment.
+
+    Returns:
+        Tuple of (host, port)
+    """
+    try:
+        from src.ai import load_ai_settings
+        settings = load_ai_settings()
+        # Parse base_url to get host and port
+        parsed = urlparse(settings.base_url)
+        host = parsed.hostname or "127.0.0.1"
+        port = parsed.port or 8080
+        return host, port
+    except Exception:
+        # Fall back to environment
+        host = os.getenv("LLAMA_HOST", "127.0.0.1")
+        port = int(os.getenv("LLAMA_PORT", "8080"))
+        return host, port
+
+
+def _check_vision_available() -> bool:
+    """
+    Check if vision capabilities are available from AI provider.
+
+    Returns:
+        True if vision is available, False otherwise
+    """
+    try:
+        from src.ai import get_ai_provider
+        provider = get_ai_provider()
+        return provider.has_vision
+    except Exception:
+        return False
 
 
 @dataclass
@@ -19,6 +58,13 @@ class LlamaServerConfig:
     port: int = 8080
     context_size: int = 65536
     gpu_layers: int = -1  # -1 = all layers on GPU
+
+    def __post_init__(self):
+        # Try to get host/port from AI settings
+        try:
+            self.host, self.port = _get_ai_settings_url()
+        except Exception:
+            pass
 
     @property
     def base_url(self) -> str:
@@ -82,3 +128,15 @@ if os.getenv("OMNIPARSER_CAPTION_MODEL"):
     config.omniparser.caption_model_path = os.getenv("OMNIPARSER_CAPTION_MODEL")
 if os.getenv("OMNIPARSER_CAPTION_PROCESSOR"):
     config.omniparser.caption_processor_name = os.getenv("OMNIPARSER_CAPTION_PROCESSOR")
+
+
+def is_vision_available() -> bool:
+    """
+    Check if vision capabilities are available.
+
+    Checks the AI provider settings to determine if vision is enabled.
+
+    Returns:
+        True if vision is available, False otherwise
+    """
+    return _check_vision_available()

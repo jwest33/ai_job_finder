@@ -1,4 +1,13 @@
+import { useQuery } from '@tanstack/react-query';
 import clsx from 'clsx';
+import { aiApi } from '../../api/ai';
+
+// Default thresholds (used while loading or on error)
+const DEFAULT_THRESHOLDS = {
+  excellent: 80,
+  good: 60,
+  fair: 40,
+};
 
 interface JobScoreBadgeProps {
   score: number | undefined | null;
@@ -6,6 +15,14 @@ interface JobScoreBadgeProps {
 }
 
 export function JobScoreBadge({ score, size = 'md' }: JobScoreBadgeProps) {
+  const { data: thresholds } = useQuery({
+    queryKey: ['threshold-settings'],
+    queryFn: aiApi.getThresholds,
+    staleTime: 1000 * 60 * 5, // Cache for 5 minutes
+  });
+
+  const t = thresholds ?? DEFAULT_THRESHOLDS;
+
   if (score === undefined || score === null) {
     return (
       <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-500 text-xs font-medium">
@@ -15,17 +32,10 @@ export function JobScoreBadge({ score, size = 'md' }: JobScoreBadgeProps) {
   }
 
   const getScoreColor = (score: number) => {
-    if (score >= 80) return 'bg-green-100 text-green-700 border-green-200';
-    if (score >= 60) return 'bg-yellow-100 text-yellow-700 border-yellow-200';
-    if (score >= 40) return 'bg-orange-100 text-orange-700 border-orange-200';
+    if (score >= t.excellent) return 'bg-green-100 text-green-700 border-green-200';
+    if (score >= t.good) return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+    if (score >= t.fair) return 'bg-orange-100 text-orange-700 border-orange-200';
     return 'bg-red-100 text-red-700 border-red-200';
-  };
-
-  const getScoreLabel = (score: number) => {
-    if (score >= 80) return 'Excellent';
-    if (score >= 60) return 'Good';
-    if (score >= 40) return 'Fair';
-    return 'Low';
   };
 
   const sizes = {
@@ -49,6 +59,14 @@ export function JobScoreBadge({ score, size = 'md' }: JobScoreBadgeProps) {
 }
 
 export function JobScoreBar({ score }: { score: number | undefined | null }) {
+  const { data: thresholds } = useQuery({
+    queryKey: ['threshold-settings'],
+    queryFn: aiApi.getThresholds,
+    staleTime: 1000 * 60 * 5, // Cache for 5 minutes
+  });
+
+  const t = thresholds ?? DEFAULT_THRESHOLDS;
+
   if (score === undefined || score === null) {
     return (
       <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
@@ -58,9 +76,9 @@ export function JobScoreBar({ score }: { score: number | undefined | null }) {
   }
 
   const getBarColor = (score: number) => {
-    if (score >= 80) return 'bg-green-500';
-    if (score >= 60) return 'bg-yellow-500';
-    if (score >= 40) return 'bg-orange-500';
+    if (score >= t.excellent) return 'bg-green-500';
+    if (score >= t.good) return 'bg-yellow-500';
+    if (score >= t.fair) return 'bg-orange-500';
     return 'bg-red-500';
   };
 

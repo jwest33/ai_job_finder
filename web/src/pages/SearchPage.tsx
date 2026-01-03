@@ -43,8 +43,10 @@ export function SearchPage() {
     queryKey: ['search-status', searchTaskId],
     queryFn: () => scraperApi.getSearchStatus(searchTaskId!),
     enabled: !!searchTaskId,
-    refetchInterval: (data) =>
-      data?.status === 'running' || data?.status === 'pending' ? 2000 : false,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === 'running' || status === 'pending' ? 2000 : false;
+    },
   });
 
   // Match status polling
@@ -52,8 +54,10 @@ export function SearchPage() {
     queryKey: ['match-status', matchTaskId],
     queryFn: () => scraperApi.getMatchStatus(matchTaskId!),
     enabled: !!matchTaskId,
-    refetchInterval: (data) =>
-      data?.status === 'running' || data?.status === 'pending' ? 2000 : false,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === 'running' || status === 'pending' ? 2000 : false;
+    },
   });
 
   // Start search mutation

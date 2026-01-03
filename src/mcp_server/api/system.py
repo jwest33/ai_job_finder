@@ -57,13 +57,12 @@ async def get_health():
     except Exception:
         pass
 
-    # Check llama server
+    # Check AI provider
     try:
-        import httpx
-        llama_url = os.getenv("LLAMA_SERVER_URL", "http://localhost:8080")
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(f"{llama_url}/health")
-            components["llama_server"] = response.status_code == 200
+        from src.ai import get_ai_provider
+        provider = get_ai_provider()
+        result = provider.test_connection()
+        components["llama_server"] = result.success
     except Exception:
         pass
 
