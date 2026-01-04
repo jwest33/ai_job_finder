@@ -580,7 +580,12 @@ class JobMatcherPipeline:
 
         # Batch update all jobs
         result = self.storage.update_match_results_batch(jobs_to_update)
-        print(f"Updated {result['updated']} jobs in database ({result.get('failed', 0)} failed)")
+        not_found = result.get('not_found', 0)
+        failed = result.get('failed', 0)
+        if not_found > 0 or failed > 0:
+            print(f"Updated {result['updated']} jobs in database ({failed} failed, {not_found} not found)")
+        else:
+            print(f"Updated {result['updated']} jobs in database")
 
         # Also save to JSON file for report generation and backward compatibility
         if not output_file:

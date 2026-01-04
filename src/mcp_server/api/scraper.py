@@ -386,8 +386,10 @@ def _run_full_match_pipeline(task_id: str, profile_name: str, source: Optional[s
 
     # Load jobs from database
     if re_match_all:
-        log(f"[API] Loading ALL jobs from database for re-matching (source: {source or 'indeed'})...")
-        df = pipeline.storage.load_all_jobs(source or "indeed")
+        # For re-matching, load ALL jobs from ALL sources (unless specific source requested)
+        source_filter = source  # None means all sources
+        log(f"[API] Loading ALL jobs from database for re-matching (source: {source_filter or 'all sources'})...")
+        df = pipeline.storage.load_all_jobs(source_filter)
         if df is None or df.empty:
             jobs = []
         else:

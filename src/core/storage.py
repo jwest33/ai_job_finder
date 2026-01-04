@@ -959,6 +959,7 @@ class JobStorage:
     def update_match_results_batch(
         self,
         jobs: List[Dict[str, Any]],
+        force_upsert: bool = True,
     ) -> Dict[str, int]:
         """
         Batch update match results for multiple jobs.
@@ -975,17 +976,19 @@ class JobStorage:
                 - is_relevant: Whether the job is relevant
                 - gap_analysis: Optional gap analysis text
                 - resume_suggestions: Optional resume suggestions
+            force_upsert: If True, always update even if row already has a match_score
 
         Returns:
-            Dict with counts: {"updated": N, "failed": M}
+            Dict with counts: {"updated": N, "failed": M, "not_found": K}
         """
         if not jobs:
-            return {"updated": 0, "failed": 0}
+            return {"updated": 0, "failed": 0, "not_found": 0}
 
         from src.core.pending_writes import get_pending_manager
 
         updated = 0
         failed = 0
+        not_found = 0
         failed_jobs = []
 
         try:
@@ -996,7 +999,8 @@ class JobStorage:
                     continue
 
                 try:
-                    self.db.execute("""
+                    # Use RETURNING to verify the update actually matched a row
+                    result = self.db.fetchone("""
                         UPDATE jobs SET
                             match_score = ?,
                             match_explanation = ?,
@@ -1004,6 +1008,7 @@ class JobStorage:
                             gap_analysis = ?,
                             resume_suggestions = ?
                         WHERE job_url = ?
+                        RETURNING job_url
                     """, (
                         job.get("match_score"),
                         job.get("match_explanation"),
@@ -1012,7 +1017,15 @@ class JobStorage:
                         job.get("resume_suggestions"),
                         job_url,
                     ))
-                    updated += 1
+
+                    if result:
+                        updated += 1
+                    else:
+                        # UPDATE didn't match any rows - job doesn't exist in DB
+                        print(f"[WARNING] Job not found in database for update: {job_url[:80]}...")
+                        not_found += 1
+                        failed_jobs.append(job)
+
                 except Exception as e:
                     print(f"[WARNING] Failed to update match results for {job_url}: {e}")
                     failed += 1
@@ -1023,14 +1036,17 @@ class JobStorage:
                 pending_manager = get_pending_manager()
                 pending_manager.save_pending(failed_jobs, "update_match_results")
 
-            return {"updated": updated, "failed": failed}
+            if not_found > 0:
+                print(f"[WARNING] {not_found} jobs were not found in database - they may have been deleted or from a different source")
+
+            return {"updated": updated, "failed": failed, "not_found": not_found}
 
         except Exception as e:
             print(f"[ERROR] Batch update match results failed: {e}")
             # Fallback: save all remaining jobs to pending
             pending_manager = get_pending_manager()
             pending_manager.save_pending(jobs, "update_match_results")
-            return {"updated": updated, "failed": len(jobs) - updated, "error": str(e)}
+            return {"updated": updated, "failed": len(jobs) - updated, "not_found": not_found, "error": str(e)}
 
     def get_job(self, job_url: str) -> Optional[Dict[str, Any]]:
         """
