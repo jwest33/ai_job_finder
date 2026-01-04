@@ -377,36 +377,42 @@ About the Company:
 
 ---
 
-**{candidate_requirements_text}**
+**CANDIDATE'S JOB REQUIREMENTS (CRITICAL - READ CAREFULLY):**
 
----
+{candidate_requirements_text}
 
-**{preferences_text}**
+**CANDIDATE'S HARD PREFERENCES:**
+{preferences_text}
 
 ---
 
 **EVALUATION INSTRUCTIONS:**
 
-**STEP 1: JOB RELEVANCE (PRIMARY FILTER)**
-First, determine if this job matches what the candidate is actually searching for:
-- Does the job title align with their Target Role & Career Goals?
-- Is this the TYPE of role they want (e.g., Payroll Manager vs Accountant)?
-- Look at the job description - is this fundamentally the right kind of position?
+**STEP 1: CHECK MUST-HAVES AND AVOID LISTS FIRST (CRITICAL)**
+Before anything else, check if the job violates any deal-breakers:
+- Review the MUST-HAVES list above - does this job satisfy ALL of them?
+- Review the AVOID list above - does this job have ANY of these red flags?
+- If the job violates a MUST-HAVE or contains an AVOID item, score BELOW 60 immediately.
 
-**IMPORTANT:** If the job title/type doesn't match their career goals, the score should be below 70 regardless of skills overlap.
+**STEP 2: JOB RELEVANCE CHECK**
+Does this job match what the candidate is searching for?
+- Does the job title align with their Target Roles listed above?
+- Does it match their Career Goals?
+- Is this the TYPE of role they want?
 
-**STEP 2: QUALIFICATIONS ASSESSMENT**
-Next, analyze the candidate's resume to evaluate their qualifications:
-- Extract their actual experience, skills, and accomplishments from the resume text
+**IMPORTANT:** If the job title/type doesn't match their target roles or career goals, score below 70.
+
+**STEP 3: QUALIFICATIONS ASSESSMENT**
+Analyze the candidate's resume against the job:
 - Do they have relevant experience for this specific role?
-- Do their technical skills from the resume match what the job requires?
-- What's their level of experience (years, seniority)?
+- Do their skills match what the job requires?
+- Consider their preferred skills list when evaluating fit.
 
-**STEP 3: REQUIREMENTS CHECK**
-Check the MUST-HAVES and AVOID lists:
-- Does the job meet all their deal-breakers (remote, salary, etc.)?
-- Does the job have any red flags from their AVOID list?
-- Does it align with their stated preferences?
+**STEP 4: PREFERENCES CHECK**
+Check the hard preferences:
+- Remote requirement met?
+- Salary in acceptable range?
+- Location acceptable?
 
 **SCORING SCALE (USE THE FULL RANGE - DO NOT DEFAULT TO 70-79):**
 - 95-100: Exceptional match - Exact target role + Exceeds qualifications + Meets ALL requirements + No concerns
@@ -422,10 +428,10 @@ Check the MUST-HAVES and AVOID lists:
 **IMPORTANT:** If the job is a strong match for the candidate's target role and they meet the qualifications, score it 85+. Reserve 70-79 for jobs with real concerns.
 
 **REASONING REQUIREMENTS:**
-In your 2-3 sentence explanation, address:
-1. Does this job match their target role? (most important)
-2. Do they have the qualifications based on their resume?
-3. Any red flags or concerns?
+In your 2-3 sentence explanation, you MUST address:
+1. Does the job meet or violate any MUST-HAVES or AVOID items?
+2. Does the job title match their target roles?
+3. Are they qualified based on their resume?
 
 **CRITICAL OUTPUT REQUIREMENTS:**
 - You MUST respond with ONLY a JSON object
@@ -437,12 +443,15 @@ In your 2-3 sentence explanation, address:
 **REQUIRED JSON FORMAT:**
 {{
   "match_score": <integer from 0 to 100>,
-  "reasoning": "<brief 2-3 sentence explanation addressing job type match, qualifications, and concerns>",
+  "reasoning": "<brief 2-3 sentence explanation addressing MUST-HAVES/AVOID compliance, role match, and qualifications>",
   "matched_requirements": {{}}
 }}
 
 Example valid response:
-{{"match_score": 85, "reasoning": "This Payroll Manager role aligns perfectly with the candidate's career goals. Their resume shows 8+ years of payroll leadership experience with ADP and Workday, directly matching the job requirements. The remote position and salary range meet all their must-haves.", "matched_requirements": {{}}}}"""
+{{"match_score": 92, "reasoning": "This Senior Data Engineer role matches their target roles exactly and meets all MUST-HAVES (remote, $180k salary, modern data stack with Snowflake/dbt). Their resume shows 6+ years of data engineering with the exact tech stack required. No AVOID items present.", "matched_requirements": {{}}}}
+
+Example of a job that violates requirements:
+{{"match_score": 45, "reasoning": "While this is a Data Engineer role, it violates their AVOID list (staffing agency posting) and fails MUST-HAVES (on-site only, no remote option). Score reduced significantly due to deal-breaker violations.", "matched_requirements": {{}}}}"""
 
         return prompt
 

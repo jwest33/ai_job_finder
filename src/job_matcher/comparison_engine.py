@@ -25,10 +25,10 @@ class ComparisonEngine:
 
     def calculate_deterministic_score(self, job: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Calculate deterministic score (0-30 points) based on hard requirements
+        Calculate deterministic score (0-40 points) based on hard requirements
 
         Breakdown:
-        - Title match: 0-10 points
+        - Title match: 0-20 points (weighted higher - most important filter)
         - Salary match: 0-10 points
         - Location/remote match: 0-10 points
 
@@ -46,57 +46,93 @@ class ComparisonEngine:
             'location_score': self._score_location_match(job_sections),
         }
 
-        # Calculate total (max 30 points, since we removed seniority)
+        # Calculate total (max 40 points)
         total_score = sum(scores.values())
 
         return {
             **scores,
             'deterministic_score': total_score,
-            'max_deterministic_score': 30,  # Updated from 40 since we removed seniority scoring
+            'max_deterministic_score': 40,
         }
 
     def _score_title_match(self, job: JobComparison) -> float:
         """
-        Score title match (0-10 points)
+        Score title match (0-20 points)
+
+        Scoring logic:
+        - Exact role match (e.g., "Senior Data Engineer"): 20 points
+        - Strong match with domain keyword (e.g., "Data Platform Engineer"): 15-18 points
+        - Partial match with domain keyword (e.g., "Data Engineer"): 12-15 points
+        - Generic title with some keywords (e.g., "Staff Engineer"): 5-8 points
+        - No relevant keywords: 0 points
 
         Returns:
-            Score from 0 to 10
+            Score from 0 to 20
         """
         if not job.title:
             return 5.0  # Neutral score if no title
 
         title_lower = job.title.job_title.lower()
 
-        # Get target keywords
+        # Get target roles and keywords
         target_roles = self.requirements.get('target_roles', [])
         related_keywords = self.requirements.get('related_keywords', [])
 
-        # Extract keywords
-        all_keywords = []
+        # Check for exact role match first (highest score)
+        for role in target_roles:
+            role_lower = role.lower()
+            if role_lower in title_lower or title_lower in role_lower:
+                return 20.0  # Exact match
+
+        # Extract domain-specific keywords (the core of what the role is about)
+        # These are critical - without them, the title is too ambiguous
+        domain_keywords = set()
+        generic_keywords = set()
+        seniority_keywords = {'senior', 'staff', 'lead', 'principal', 'junior', 'associate', 'head', 'director', 'manager', 'vp'}
+
         for role in target_roles:
             words = role.lower().split()
-            all_keywords.extend(words)
-        all_keywords.extend([k.lower() for k in related_keywords])
+            for word in words:
+                if word in seniority_keywords:
+                    continue  # Skip seniority modifiers
+                elif word in {'engineer', 'developer', 'architect', 'analyst', 'scientist'}:
+                    generic_keywords.add(word)  # Generic role words
+                else:
+                    domain_keywords.add(word)  # Domain-specific (e.g., "data", "platform", "infrastructure")
 
-        # Remove duplicates and stop words
-        stop_words = {'and', 'or', 'the', 'a', 'an', 'for', 'to', 'of', 'in', 'with'}
-        all_keywords = list(set([k for k in all_keywords if k not in stop_words]))
+        # Add related keywords as domain keywords
+        for kw in related_keywords:
+            kw_lower = kw.lower()
+            if kw_lower not in seniority_keywords and kw_lower not in generic_keywords:
+                domain_keywords.add(kw_lower)
 
-        if not all_keywords:
-            return 5.0  # Neutral if no keywords
+        # Count matches
+        domain_matches = sum(1 for kw in domain_keywords if kw in title_lower)
+        generic_matches = sum(1 for kw in generic_keywords if kw in title_lower)
+        seniority_matches = sum(1 for kw in seniority_keywords if kw in title_lower)
 
-        # Count keyword matches
-        matches = sum(1 for keyword in all_keywords if keyword in title_lower)
-
-        # Calculate score (more matches = higher score)
-        if matches == 0:
-            return 0.0
-        elif matches == 1:
-            return 5.0
-        elif matches == 2:
-            return 7.5
+        # Scoring logic - domain keywords are critical
+        if domain_matches >= 2:
+            # Strong domain match (e.g., "Data Platform Engineer")
+            base_score = 16.0
+            base_score += min(generic_matches * 1.5, 3.0)  # Bonus for generic matches
+            base_score += min(seniority_matches * 0.5, 1.0)  # Small bonus for seniority
+            return min(base_score, 20.0)
+        elif domain_matches == 1:
+            # Single domain keyword match (e.g., "Data Engineer")
+            base_score = 12.0
+            base_score += min(generic_matches * 1.5, 3.0)
+            base_score += min(seniority_matches * 0.5, 1.0)
+            return min(base_score, 17.0)
+        elif generic_matches >= 1:
+            # Only generic keywords match (e.g., "Staff Engineer" - ambiguous!)
+            # This is penalized because we don't know what KIND of engineer
+            base_score = 4.0
+            base_score += min(seniority_matches * 1.0, 2.0)
+            return min(base_score, 6.0)
         else:
-            return 10.0
+            # No relevant matches
+            return 0.0
 
     def _score_salary_match(self, job: JobComparison) -> float:
         """
@@ -188,8 +224,8 @@ class ComparisonEngine:
         Combine deterministic and AI scores into final hybrid score
 
         Weighting:
-        - Deterministic: 30% (max 30 points) - Title, Salary, Location
-        - AI: 70% (max 70 points) - Overall fit, qualifications, experience
+        - Deterministic: 40% (max 40 points) - Title (20), Salary (10), Location (10)
+        - AI: 60% (max 60 points) - Overall fit, qualifications, experience
 
         Args:
             deterministic_scores: Dict with deterministic score breakdown
@@ -199,10 +235,10 @@ class ComparisonEngine:
         Returns:
             Dict with combined score and breakdown
         """
-        # AI score is 0-100, convert to 0-70 for weighting (increased from 60)
-        ai_weighted_score = (ai_score / 100) * 70
+        # AI score is 0-100, convert to 0-60 for weighting
+        ai_weighted_score = (ai_score / 100) * 60
 
-        # Deterministic score is now 0-30 (decreased from 40)
+        # Deterministic score is 0-40 (Title: 20, Salary: 10, Location: 10)
         deterministic_total = deterministic_scores['deterministic_score']
 
         # Combined score (0-100)

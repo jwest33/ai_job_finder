@@ -288,7 +288,7 @@ class JobMatcherPipeline:
                         job[field] = []
 
         # Convert timestamp fields to ISO strings for JSON serialization
-        timestamp_fields = ['first_seen', 'last_seen']
+        timestamp_fields = ['first_seen', 'last_seen', 'date_posted', 'date_on_site', 'applied_at']
         for job in jobs:
             for field in timestamp_fields:
                 if field in job and job[field] is not None:
@@ -409,13 +409,14 @@ class JobMatcherPipeline:
         return matched
 
     def run_analysis_pass(
-        self, jobs: List[Dict[str, Any]]
+        self, jobs: List[Dict[str, Any]], api_progress_callback: Optional[callable] = None
     ) -> List[Dict[str, Any]]:
         """
         Pass 2: Analyze gaps and strengths
 
         Args:
             jobs: List of scored jobs
+            api_progress_callback: Optional callback for API progress updates
 
         Returns:
             List of analyzed jobs
@@ -426,10 +427,15 @@ class JobMatcherPipeline:
         print(f"Jobs to analyze: {len(jobs)}")
         print()
 
+        total_jobs = len(jobs)
+
         def progress_callback(current, total, job):
             title = job.get("title", "Unknown")[:50]
             score = job.get("match_score", 0)
             print(f"[{current}/{total}] Analyzing: {title} (Score: {score})...")
+            # Call API progress callback if provided
+            if api_progress_callback:
+                api_progress_callback(current, total_jobs, f"Analyzing job {current}/{total_jobs}: {title}")
 
         if self.use_batch_queue:
             analyzed_jobs = self.gap_analyzer.analyze_jobs_batch_queued(jobs, progress_callback)
@@ -452,13 +458,14 @@ class JobMatcherPipeline:
         return analyzed_jobs
 
     def run_optimization_pass(
-        self, jobs: List[Dict[str, Any]]
+        self, jobs: List[Dict[str, Any]], api_progress_callback: Optional[callable] = None
     ) -> List[Dict[str, Any]]:
         """
         Pass 3: Generate resume recommendations
 
         Args:
             jobs: List of analyzed jobs
+            api_progress_callback: Optional callback for API progress updates
 
         Returns:
             List of optimized jobs
@@ -469,10 +476,15 @@ class JobMatcherPipeline:
         print(f"Jobs to optimize: {len(jobs)}")
         print()
 
+        total_jobs = len(jobs)
+
         def progress_callback(current, total, job):
             title = job.get("title", "Unknown")[:50]
             score = job.get("match_score", 0)
             print(f"[{current}/{total}] Optimizing: {title} (Score: {score})...")
+            # Call API progress callback if provided
+            if api_progress_callback:
+                api_progress_callback(current, total_jobs, f"Optimizing job {current}/{total_jobs}: {title}")
 
         if self.use_batch_queue:
             optimized_jobs = self.optimizer.optimize_jobs_batch_queued(jobs, progress_callback)

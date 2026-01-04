@@ -12,10 +12,12 @@ import os
 import sys
 import json
 import threading
+import math
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
 from dotenv import load_dotenv
+import pandas as pd
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -24,6 +26,27 @@ from src.core.database import get_database
 from src.utils.profile_manager import ProfilePaths
 
 load_dotenv()
+
+
+class JobJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder for job dicts containing pandas/numpy types"""
+    def default(self, obj):
+        # Handle pandas Timestamp
+        if isinstance(obj, pd.Timestamp):
+            return obj.isoformat()
+        # Handle datetime
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        # Handle numpy arrays
+        if hasattr(obj, 'tolist'):
+            return obj.tolist()
+        # Handle numpy scalar types
+        if hasattr(obj, 'item'):
+            return obj.item()
+        # Handle NaN/Infinity
+        if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+            return None
+        return super().default(obj)
 
 
 # Error type constants
@@ -79,8 +102,8 @@ class FailureTracker:
                 print("[WARNING] Cannot record failure: missing job_url")
                 return False
 
-            # Serialize job data as JSON
-            raw_job_data = json.dumps(job, ensure_ascii=False)
+            # Serialize job data as JSON (using custom encoder for Timestamps)
+            raw_job_data = json.dumps(job, ensure_ascii=False, cls=JobJSONEncoder)
             now = datetime.now()
 
             # Check if this job/stage combo already exists

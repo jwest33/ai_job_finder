@@ -391,6 +391,13 @@ def _run_full_match_pipeline(task_id: str, profile_name: str, source: Optional[s
                             job[field] = list(job[field]) if job[field] is not None else []
                         except (TypeError, ValueError):
                             job[field] = []
+            # Convert timestamp fields to ISO strings for JSON serialization
+            timestamp_fields = ['first_seen', 'last_seen', 'date_posted', 'date_on_site', 'applied_at']
+            for job in jobs:
+                for field in timestamp_fields:
+                    if field in job and job[field] is not None:
+                        if hasattr(job[field], 'isoformat'):
+                            job[field] = job[field].isoformat()
     else:
         log(f"[API] Loading unprocessed jobs from database (source: {source or 'indeed'})...")
         jobs = pipeline.load_jobs_from_db(source or "indeed")
@@ -417,13 +424,32 @@ def _run_full_match_pipeline(task_id: str, profile_name: str, source: Optional[s
     matched_jobs = pipeline.run_scoring_pass(jobs, min_score, api_progress_callback=api_progress_callback)
     log(f"[API] Scoring complete: {len(matched_jobs)} matched jobs")
 
-    # Save results to database
-    log("[API] Saving results to database...")
-    update_task(task_id, progress={"current": total_jobs, "total": total_jobs, "message": "Saving results..."})
-
+    # Run gap analysis pass (Pass 2)
     if matched_jobs:
-        pipeline.save_matched_jobs(matched_jobs)
-        log(f"[API] Saved {len(matched_jobs)} matched jobs")
+        log(f"[API] Starting gap analysis for {len(matched_jobs)} jobs...")
+
+        def analysis_progress_callback(current: int, total: int, message: str):
+            update_task(task_id, progress={"current": current, "total": total, "message": message})
+
+        analyzed_jobs = pipeline.run_analysis_pass(matched_jobs, api_progress_callback=analysis_progress_callback)
+        log(f"[API] Gap analysis complete: {len(analyzed_jobs)} jobs analyzed")
+
+        # Run resume optimization pass (Pass 3)
+        log(f"[API] Starting resume optimization for {len(analyzed_jobs)} jobs...")
+
+        def optimization_progress_callback(current: int, total: int, message: str):
+            update_task(task_id, progress={"current": current, "total": total, "message": message})
+
+        optimized_jobs = pipeline.run_optimization_pass(analyzed_jobs, api_progress_callback=optimization_progress_callback)
+        log(f"[API] Resume optimization complete: {len(optimized_jobs)} jobs optimized")
+
+        # Save results to database
+        log("[API] Saving results to database...")
+        update_task(task_id, progress={"current": total_jobs, "total": total_jobs, "message": "Saving results..."})
+        pipeline.save_matched_jobs(optimized_jobs)
+        log(f"[API] Saved {len(optimized_jobs)} matched jobs with analysis")
+    else:
+        log("[API] No matched jobs to analyze")
 
     update_task(task_id, progress={"current": total_jobs, "total": total_jobs, "message": "Complete"})
     log("[API] Pipeline complete")
