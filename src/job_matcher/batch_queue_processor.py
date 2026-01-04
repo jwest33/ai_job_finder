@@ -296,6 +296,8 @@ class BatchQueueProcessor:
 
         # Process in explicit batches - NEVER more than max_workers in flight
         total_jobs = len(queued_jobs)
+        completed_count = 0  # Track overall progress across batches
+
         for batch_start in range(0, total_jobs, self.max_workers):
             batch_end = min(batch_start + self.max_workers, total_jobs)
             batch_jobs = queued_jobs[batch_start:batch_end]
@@ -312,6 +314,7 @@ class BatchQueueProcessor:
                 for future in as_completed(batch_futures):
                     job_idx, result, queued_job = future.result()
                     results[job_idx] = result
+                    completed_count += 1
 
                     if result:
                         checkpoint_queue.append((queued_job.job_url, True))
@@ -320,6 +323,10 @@ class BatchQueueProcessor:
                         failure_queue.append((queued_job.job, "AI executor returned None or exception occurred"))
 
                     progress_queue.append((job_idx, queued_job.job))
+
+                    # Report progress immediately after each job completes
+                    if progress_callback:
+                        progress_callback(completed_count, total_jobs, queued_job.job)
 
             print(f"   [Batch {batch_num}/{total_batches}] Complete", flush=True)
 
@@ -343,13 +350,8 @@ class BatchQueueProcessor:
                     error_msg
                 )
 
-        # 3. Report progress in bulk
-        if progress_callback:
-            total = len(queued_jobs)
-            # Report progress every 10% or at completion
-            for i, (job_idx, job) in enumerate(progress_queue, 1):
-                if i % max(1, total // 10) == 0 or i == total:
-                    progress_callback(i, total, job)
+        # Note: Progress is now reported immediately after each job completes (above)
+        # so no deferred progress reporting needed here
 
         return results
 

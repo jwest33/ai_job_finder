@@ -148,7 +148,16 @@ app.add_middleware(
 # Mount API router for web application
 app.include_router(api_router)
 
+
+# Health check endpoint (must be before static files mount)
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for Docker/K8s probes"""
+    return {"status": "healthy", "version": MCPServerConfig.VERSION}
+
+
 # Serve static files from web build (if exists)
+# NOTE: This must be LAST - it's a catch-all that intercepts unmatched routes
 web_dist = Path(__file__).parent.parent.parent / "web" / "dist"
 if web_dist.exists():
     app.mount("/", StaticFiles(directory=str(web_dist), html=True), name="static")
@@ -172,12 +181,6 @@ async def root():
             "rate_limiting": MCPServerConfig.RATE_LIMIT_ENABLED,
         },
     )
-
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy", "version": MCPServerConfig.VERSION}
 
 
 @app.get("/auth/generate-token")

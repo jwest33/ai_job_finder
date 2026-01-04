@@ -28,7 +28,11 @@ import { AttachmentUploadModal } from '../components/jobs/AttachmentUploadModal'
 import { useJobStore } from '../store/jobStore';
 import { useToast } from '../store/uiStore';
 import { formatDistanceToNow } from 'date-fns';
-import { ApplicationStatus } from '../types/job';
+import {
+  ApplicationStatus,
+  parseGapAnalysis,
+  parseResumeSuggestions,
+} from '../types/job';
 
 export function JobDetailPage() {
   const { jobUrl } = useParams<{ jobUrl: string }>();
@@ -187,40 +191,193 @@ export function JobDetailPage() {
       </div>
 
       {/* Gap Analysis & Suggestions */}
-      {(job.gap_analysis || job.resume_suggestions) && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {job.gap_analysis && (
-            <Card>
-              <CardTitle>Gap Analysis</CardTitle>
-              <div className="mt-4 space-y-4 text-sm">
-                <div className="prose prose-sm dark:prose-invert max-w-none text-gray-600 dark:text-gray-300">
-                  {job.gap_analysis.split('\n').map((line, i) => (
-                    <p key={i} className="flex items-start gap-2">
-                      {line.includes('Strength') || line.includes('+') ? (
-                        <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
-                      ) : line.includes('Gap') || line.includes('-') ? (
-                        <XCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
-                      ) : (
-                        <AlertCircle className="w-4 h-4 text-yellow-500 mt-0.5 flex-shrink-0" />
-                      )}
-                      {line}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            </Card>
-          )}
+      {(job.gap_analysis || job.resume_suggestions) && (() => {
+        const gapAnalysis = parseGapAnalysis(job.gap_analysis);
+        const resumeSuggestions = parseResumeSuggestions(job.resume_suggestions);
 
-          {job.resume_suggestions && (
-            <Card>
-              <CardTitle>Resume Suggestions</CardTitle>
-              <div className="mt-4 text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap">
-                {job.resume_suggestions}
-              </div>
-            </Card>
-          )}
-        </div>
-      )}
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Gap Analysis Card */}
+            {(gapAnalysis || job.gap_analysis) && (
+              <Card>
+                <CardTitle>Gap Analysis</CardTitle>
+                <div className="mt-4 space-y-4">
+                  {gapAnalysis ? (
+                    <>
+                      {/* Assessment */}
+                      {gapAnalysis.assessment && (
+                        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4">
+                          <p className="text-sm text-gray-700 dark:text-gray-300">
+                            {gapAnalysis.assessment}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Strengths */}
+                      {gapAnalysis.strengths.length > 0 && (
+                        <div>
+                          <h4 className="text-sm font-medium text-green-700 dark:text-green-400 mb-2 flex items-center gap-2">
+                            <CheckCircle className="w-4 h-4" />
+                            Strengths ({gapAnalysis.strengths.length})
+                          </h4>
+                          <ul className="space-y-2">
+                            {gapAnalysis.strengths.map((item, i) => (
+                              <li key={i} className="text-sm text-gray-600 dark:text-gray-400 flex items-start gap-2 pl-1">
+                                <span className="text-green-500 font-medium">+</span>
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Gaps */}
+                      {gapAnalysis.gaps.length > 0 && (
+                        <div>
+                          <h4 className="text-sm font-medium text-amber-700 dark:text-amber-400 mb-2 flex items-center gap-2">
+                            <AlertCircle className="w-4 h-4" />
+                            Gaps to Address ({gapAnalysis.gaps.length})
+                          </h4>
+                          <ul className="space-y-2">
+                            {gapAnalysis.gaps.map((item, i) => (
+                              <li key={i} className="text-sm text-gray-600 dark:text-gray-400 flex items-start gap-2 pl-1">
+                                <span className="text-amber-500 font-medium">-</span>
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Red Flags */}
+                      {gapAnalysis.red_flags.length > 0 && (
+                        <div>
+                          <h4 className="text-sm font-medium text-red-700 dark:text-red-400 mb-2 flex items-center gap-2">
+                            <XCircle className="w-4 h-4" />
+                            Red Flags ({gapAnalysis.red_flags.length})
+                          </h4>
+                          <ul className="space-y-2">
+                            {gapAnalysis.red_flags.map((item, i) => (
+                              <li key={i} className="text-sm text-gray-600 dark:text-gray-400 flex items-start gap-2">
+                                <XCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    // Fallback for non-JSON gap analysis (legacy data)
+                    <div className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap">
+                      {job.gap_analysis}
+                    </div>
+                  )}
+                </div>
+              </Card>
+            )}
+
+            {/* Resume Suggestions Card */}
+            {(resumeSuggestions || job.resume_suggestions) && (
+              <Card>
+                <CardTitle>Resume Suggestions</CardTitle>
+                <div className="mt-4 space-y-4">
+                  {resumeSuggestions ? (
+                    <>
+                      {/* Resume Summary */}
+                      {resumeSuggestions.resume_summary && (
+                        <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4">
+                          <h4 className="text-sm font-medium text-blue-700 dark:text-blue-400 mb-2">
+                            Suggested Summary
+                          </h4>
+                          <p className="text-sm text-gray-700 dark:text-gray-300">
+                            {resumeSuggestions.resume_summary}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Keywords */}
+                      {resumeSuggestions.keywords.length > 0 && (
+                        <div>
+                          <h4 className="text-sm font-medium text-blue-700 dark:text-blue-400 mb-2">
+                            Keywords to Include
+                          </h4>
+                          <div className="flex flex-wrap gap-2">
+                            {resumeSuggestions.keywords.map((keyword, i) => (
+                              <span
+                                key={i}
+                                className="px-2.5 py-1 text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded-full"
+                              >
+                                {keyword}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Experience Highlights */}
+                      {resumeSuggestions.experience_highlights.length > 0 && (
+                        <div>
+                          <h4 className="text-sm font-medium text-purple-700 dark:text-purple-400 mb-2">
+                            Experience to Highlight
+                          </h4>
+                          <ul className="space-y-2">
+                            {resumeSuggestions.experience_highlights.map((item, i) => (
+                              <li key={i} className="text-sm text-gray-600 dark:text-gray-400 flex items-start gap-2">
+                                <span className="text-purple-500 font-medium">•</span>
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Sections to Expand */}
+                      {resumeSuggestions.sections_to_expand.length > 0 && (
+                        <div>
+                          <h4 className="text-sm font-medium text-orange-700 dark:text-orange-400 mb-2">
+                            Sections to Expand
+                          </h4>
+                          <ul className="space-y-2">
+                            {resumeSuggestions.sections_to_expand.map((item, i) => (
+                              <li key={i} className="text-sm text-gray-600 dark:text-gray-400 flex items-start gap-2">
+                                <span className="text-orange-500 font-medium">•</span>
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Cover Letter Points */}
+                      {resumeSuggestions.cover_letter_points.length > 0 && (
+                        <div>
+                          <h4 className="text-sm font-medium text-indigo-700 dark:text-indigo-400 mb-2">
+                            Cover Letter Points
+                          </h4>
+                          <ul className="space-y-2">
+                            {resumeSuggestions.cover_letter_points.map((item, i) => (
+                              <li key={i} className="text-sm text-gray-600 dark:text-gray-400 flex items-start gap-2">
+                                <span className="text-indigo-500 font-medium">•</span>
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    // Fallback for non-JSON resume suggestions (legacy data)
+                    <div className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap">
+                      {job.resume_suggestions}
+                    </div>
+                  )}
+                </div>
+              </Card>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Application Documents */}
       <Card>

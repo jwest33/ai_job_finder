@@ -408,13 +408,18 @@ Check the MUST-HAVES and AVOID lists:
 - Does the job have any red flags from their AVOID list?
 - Does it align with their stated preferences?
 
-**SCORING SCALE:**
-- 90-100: Perfect match - Right job type + Strong qualifications + Meets all requirements
-- 80-89: Very good match - Right job type + Good qualifications + Meets most requirements
-- 70-79: Good match - Right job type + Adequate qualifications + Minor gaps
-- 60-69: Tangentially related - Similar field but NOT the target role, OR right role but significant qualification gaps
+**SCORING SCALE (USE THE FULL RANGE - DO NOT DEFAULT TO 70-79):**
+- 95-100: Exceptional match - Exact target role + Exceeds qualifications + Meets ALL requirements + No concerns
+- 90-94: Excellent match - Target role + Strong qualifications + Meets all requirements + Minor nice-to-haves missing
+- 85-89: Very strong match - Target role + Good qualifications + Meets most requirements + Few small gaps
+- 80-84: Strong match - Target role + Solid qualifications + Some gaps but nothing major
+- 75-79: Good match - Target role + Adequate qualifications + Notable gaps to address
+- 70-74: Decent match - Target role + Meets minimum qualifications + Multiple gaps
+- 60-69: Marginal - Similar field but NOT the target role, OR right role but significant qualification gaps
 - 50-59: Weak relevance - Different role type but overlapping skills
-- 0-49: Wrong job type - Not what they're looking for OR violates deal-breakers
+- 0-49: Poor fit - Not what they're looking for OR violates deal-breakers
+
+**IMPORTANT:** If the job is a strong match for the candidate's target role and they meet the qualifications, score it 85+. Reserve 70-79 for jobs with real concerns.
 
 **REASONING REQUIREMENTS:**
 In your 2-3 sentence explanation, address:

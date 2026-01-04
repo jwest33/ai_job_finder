@@ -401,7 +401,7 @@ def _run_full_match_pipeline(task_id: str, profile_name: str, source: Optional[s
 
     total_jobs = len(jobs)
     log(f"[API] Loaded {total_jobs} jobs")
-    update_task(task_id, progress={"current": 20, "total": total_jobs, "message": f"Loaded {total_jobs} jobs"})
+    update_task(task_id, progress={"current": 0, "total": total_jobs, "message": f"Loaded {total_jobs} jobs, starting scoring..."})
 
     # Run scoring pass (same as CLI) with progress callback
     log(f"[API] Starting scoring pass for {total_jobs} jobs...")

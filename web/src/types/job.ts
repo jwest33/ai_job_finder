@@ -148,3 +148,61 @@ export const ATTACHMENT_TYPE_COLORS: Record<AttachmentType, string> = {
   resume: 'bg-blue-100 text-blue-700',
   cover_letter: 'bg-purple-100 text-purple-700',
 };
+
+// Parsed AI analysis structures
+export interface GapAnalysis {
+  strengths: string[];
+  gaps: string[];
+  red_flags: string[];
+  assessment: string;
+}
+
+export interface ResumeSuggestions {
+  keywords: string[];
+  experience_highlights: string[];
+  sections_to_expand: string[];
+  cover_letter_points: string[];
+  resume_summary: string;
+}
+
+// Helper functions to parse JSON strings from API
+export function parseGapAnalysis(data: string | undefined): GapAnalysis | null {
+  if (!data) return null;
+  try {
+    const parsed = JSON.parse(data);
+    // Validate required fields
+    if (
+      Array.isArray(parsed.strengths) &&
+      Array.isArray(parsed.gaps) &&
+      Array.isArray(parsed.red_flags) &&
+      typeof parsed.assessment === 'string'
+    ) {
+      return parsed as GapAnalysis;
+    }
+    return null;
+  } catch {
+    // Not JSON - might be formatted text, return null
+    return null;
+  }
+}
+
+export function parseResumeSuggestions(data: string | undefined): ResumeSuggestions | null {
+  if (!data) return null;
+  try {
+    const parsed = JSON.parse(data);
+    // Validate required fields
+    if (
+      Array.isArray(parsed.keywords) &&
+      Array.isArray(parsed.experience_highlights) &&
+      Array.isArray(parsed.sections_to_expand) &&
+      Array.isArray(parsed.cover_letter_points) &&
+      typeof parsed.resume_summary === 'string'
+    ) {
+      return parsed as ResumeSuggestions;
+    }
+    return null;
+  } catch {
+    // Not JSON - might be formatted text, return null
+    return null;
+  }
+}

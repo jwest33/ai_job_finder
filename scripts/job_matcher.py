@@ -525,8 +525,31 @@ class JobMatcherPipeline:
 
             match_explanation = job.get("match_explanation", "")
             is_relevant = job.get("is_relevant", True)
+
+            # Build gap_analysis from component fields if not already present
             gap_analysis = job.get("gap_analysis")
+            if gap_analysis is None:
+                # Check if we have the component fields from GapAnalyzer
+                if any(job.get(field) is not None for field in ["strengths", "gaps", "red_flags", "assessment"]):
+                    gap_analysis = {
+                        "strengths": job.get("strengths", []),
+                        "gaps": job.get("gaps", []),
+                        "red_flags": job.get("red_flags", []),
+                        "assessment": job.get("assessment", ""),
+                    }
+
+            # Build resume_suggestions from component fields if not already present
             resume_suggestions = job.get("resume_suggestions")
+            if resume_suggestions is None:
+                # Check if we have the component fields from ResumeOptimizer
+                if any(job.get(field) is not None for field in ["keywords", "experience_highlights", "sections_to_expand", "cover_letter_points", "resume_summary"]):
+                    resume_suggestions = {
+                        "keywords": job.get("keywords", []),
+                        "experience_highlights": job.get("experience_highlights", []),
+                        "sections_to_expand": job.get("sections_to_expand", []),
+                        "cover_letter_points": job.get("cover_letter_points", []),
+                        "resume_summary": job.get("resume_summary", ""),
+                    }
 
             # Handle gap_analysis and resume_suggestions which might be dicts
             if isinstance(gap_analysis, dict):
