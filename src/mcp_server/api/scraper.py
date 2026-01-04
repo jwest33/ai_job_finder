@@ -585,6 +585,44 @@ async def get_match_status(task_id: str):
     )
 
 
+class ActiveTasksResponse(BaseModel):
+    """Response for active tasks endpoint"""
+    search: Optional[TaskStatus] = None
+    match: Optional[TaskStatus] = None
+
+
+@router.get("/active-tasks", response_model=ActiveTasksResponse)
+async def get_active_tasks():
+    """Get currently active search and match tasks, if any."""
+    result = ActiveTasksResponse()
+
+    # Check for active search task
+    if _active_search_task_id:
+        task = get_task(_active_search_task_id)
+        if task and task["status"] in ("pending", "running"):
+            result.search = TaskStatus(
+                task_id=task["id"],
+                status=task["status"],
+                progress=TaskProgress(**task["progress"]) if task["progress"] else None,
+                result=task["result"],
+                error=task["error"],
+            )
+
+    # Check for active match task
+    if _active_match_task_id:
+        task = get_task(_active_match_task_id)
+        if task and task["status"] in ("pending", "running"):
+            result.match = TaskStatus(
+                task_id=task["id"],
+                status=task["status"],
+                progress=TaskProgress(**task["progress"]) if task["progress"] else None,
+                result=task["result"],
+                error=task["error"],
+            )
+
+    return result
+
+
 @router.get("/config", response_model=ScraperConfig)
 async def get_config():
     """Get scraper configuration from requirements."""

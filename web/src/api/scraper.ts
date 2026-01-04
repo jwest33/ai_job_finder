@@ -15,6 +15,11 @@ export interface MatchParams {
   re_match_all?: boolean;
 }
 
+export interface ActiveTasksResponse {
+  search: TaskResponse | null;
+  match: TaskResponse | null;
+}
+
 export const scraperApi = {
   async startSearch(params: SearchParams): Promise<{ task_id: string }> {
     try {
@@ -60,6 +65,15 @@ export const scraperApi = {
   }> {
     try {
       const response = await apiClient.get('/scraper/config');
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  async getActiveTasks(): Promise<ActiveTasksResponse> {
+    try {
+      const response = await apiClient.get('/scraper/active-tasks');
       return response.data;
     } catch (error) {
       handleApiError(error);

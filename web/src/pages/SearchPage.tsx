@@ -19,9 +19,31 @@ export function SearchPage() {
   // Task tracking
   const [searchTaskId, setSearchTaskId] = useState<string | null>(null);
   const [matchTaskId, setMatchTaskId] = useState<string | null>(null);
+  const [hasCheckedActiveTasks, setHasCheckedActiveTasks] = useState(false);
 
   // Match options
   const [reMatchAll, setReMatchAll] = useState(false);
+
+  // Check for active tasks on mount
+  const { data: activeTasks } = useQuery({
+    queryKey: ['active-tasks'],
+    queryFn: scraperApi.getActiveTasks,
+    staleTime: 0, // Always fetch fresh on mount
+    enabled: !hasCheckedActiveTasks, // Only run once on mount
+  });
+
+  // Resume tracking active tasks found on mount
+  useEffect(() => {
+    if (activeTasks && !hasCheckedActiveTasks) {
+      if (activeTasks.search?.task_id) {
+        setSearchTaskId(activeTasks.search.task_id);
+      }
+      if (activeTasks.match?.task_id) {
+        setMatchTaskId(activeTasks.match.task_id);
+      }
+      setHasCheckedActiveTasks(true);
+    }
+  }, [activeTasks, hasCheckedActiveTasks]);
 
   // Load config
   const { data: config, isLoading: configLoading } = useQuery({
