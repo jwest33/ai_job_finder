@@ -394,44 +394,55 @@ Before anything else, check if the job violates any deal-breakers:
 - Review the AVOID list above - does this job have ANY of these red flags?
 - If the job violates a MUST-HAVE or contains an AVOID item, score BELOW 60 immediately.
 
-**STEP 2: JOB RELEVANCE CHECK**
+**STEP 2: DETERMINE THE ACTUAL ROLE TYPE (CRITICAL)**
+Read the ENTIRE job description carefully to determine what this job actually is:
+- What domain/field is this role in? (e.g., data engineering, frontend, DevOps, mechanical, etc.)
+- What will the person actually DO day-to-day?
+- What technologies and skills are emphasized?
+
+**AMBIGUOUS TITLES WARNING:** Titles like "Staff Engineer", "Senior Engineer", or "Platform Engineer" are AMBIGUOUS.
+You MUST read the full description to determine if it matches the candidate's target domain.
+- If the description focuses on their target domain (e.g., data pipelines, ETL, data warehouses for a Data Engineer): proceed to Step 3
+- If the description is vague or focuses on a DIFFERENT domain (e.g., frontend, mobile, mechanical): score BELOW 60
+
+**STEP 3: JOB RELEVANCE CHECK**
 Does this job match what the candidate is searching for?
-- Does the job title align with their Target Roles listed above?
+- Does the actual role (based on description, NOT just title) align with their Target Roles?
 - Does it match their Career Goals?
-- Is this the TYPE of role they want?
+- Are the required skills aligned with their domain expertise?
 
-**IMPORTANT:** If the job title/type doesn't match their target roles or career goals, score below 70.
+**IMPORTANT:** If the job is NOT in the candidate's target domain, score below 60 regardless of other factors.
 
-**STEP 3: QUALIFICATIONS ASSESSMENT**
+**STEP 4: QUALIFICATIONS ASSESSMENT**
 Analyze the candidate's resume against the job:
 - Do they have relevant experience for this specific role?
 - Do their skills match what the job requires?
 - Consider their preferred skills list when evaluating fit.
 
-**STEP 4: PREFERENCES CHECK**
+**STEP 5: PREFERENCES CHECK**
 Check the hard preferences:
 - Remote requirement met?
 - Salary in acceptable range?
 - Location acceptable?
 
-**SCORING SCALE (USE THE FULL RANGE - DO NOT DEFAULT TO 70-79):**
+**SCORING SCALE (USE THE FULL RANGE):**
 - 95-100: Exceptional match - Exact target role + Exceeds qualifications + Meets ALL requirements + No concerns
 - 90-94: Excellent match - Target role + Strong qualifications + Meets all requirements + Minor nice-to-haves missing
 - 85-89: Very strong match - Target role + Good qualifications + Meets most requirements + Few small gaps
 - 80-84: Strong match - Target role + Solid qualifications + Some gaps but nothing major
 - 75-79: Good match - Target role + Adequate qualifications + Notable gaps to address
 - 70-74: Decent match - Target role + Meets minimum qualifications + Multiple gaps
-- 60-69: Marginal - Similar field but NOT the target role, OR right role but significant qualification gaps
-- 50-59: Weak relevance - Different role type but overlapping skills
-- 0-49: Poor fit - Not what they're looking for OR violates deal-breakers
+- 60-69: Marginal - Related field but NOT the exact target role type
+- 50-59: Wrong domain - Different engineering discipline or ambiguous role that doesn't clearly match
+- 0-49: Poor fit - Completely different field OR violates deal-breakers
 
-**IMPORTANT:** If the job is a strong match for the candidate's target role and they meet the qualifications, score it 85+. Reserve 70-79 for jobs with real concerns.
+**CRITICAL:** A job with an ambiguous title AND vague description that doesn't clearly match the target domain should score 50-59 MAX.
 
 **REASONING REQUIREMENTS:**
 In your 2-3 sentence explanation, you MUST address:
-1. Does the job meet or violate any MUST-HAVES or AVOID items?
-2. Does the job title match their target roles?
-3. Are they qualified based on their resume?
+1. What is the ACTUAL role type based on the full job description?
+2. Does it match the candidate's target domain?
+3. Any MUST-HAVE/AVOID violations?
 
 **CRITICAL OUTPUT REQUIREMENTS:**
 - You MUST respond with ONLY a JSON object
@@ -443,15 +454,21 @@ In your 2-3 sentence explanation, you MUST address:
 **REQUIRED JSON FORMAT:**
 {{
   "match_score": <integer from 0 to 100>,
-  "reasoning": "<brief 2-3 sentence explanation addressing MUST-HAVES/AVOID compliance, role match, and qualifications>",
+  "reasoning": "<brief 2-3 sentence explanation addressing actual role type, domain match, and any concerns>",
   "matched_requirements": {{}}
 }}
 
-Example valid response:
-{{"match_score": 92, "reasoning": "This Senior Data Engineer role matches their target roles exactly and meets all MUST-HAVES (remote, $180k salary, modern data stack with Snowflake/dbt). Their resume shows 6+ years of data engineering with the exact tech stack required. No AVOID items present.", "matched_requirements": {{}}}}
+Example - Strong match:
+{{"match_score": 92, "reasoning": "This Senior Data Engineer role clearly focuses on data pipelines, Snowflake, and dbt based on the description. Matches their target role exactly and meets all MUST-HAVES (remote, $180k, modern data stack). Their resume shows 6+ years with this exact tech stack.", "matched_requirements": {{}}}}
 
-Example of a job that violates requirements:
-{{"match_score": 45, "reasoning": "While this is a Data Engineer role, it violates their AVOID list (staffing agency posting) and fails MUST-HAVES (on-site only, no remote option). Score reduced significantly due to deal-breaker violations.", "matched_requirements": {{}}}}"""
+Example - Ambiguous title but GOOD description:
+{{"match_score": 85, "reasoning": "Despite the generic 'Staff Engineer' title, the description clearly focuses on data infrastructure, ETL pipelines, and Snowflake - matching their target domain. Meets MUST-HAVES. Good qualifications match.", "matched_requirements": {{}}}}
+
+Example - Ambiguous title with WRONG domain:
+{{"match_score": 52, "reasoning": "The 'Staff Engineer' title is ambiguous and the description focuses on frontend development, React, and UI components - NOT data engineering. This is the wrong domain despite some overlapping general engineering skills.", "matched_requirements": {{}}}}
+
+Example - Deal-breaker violation:
+{{"match_score": 45, "reasoning": "While labeled as Data Engineer, this violates AVOID (staffing agency) and fails MUST-HAVES (on-site only). Deal-breaker violations override other factors.", "matched_requirements": {{}}}}"""
 
         return prompt
 

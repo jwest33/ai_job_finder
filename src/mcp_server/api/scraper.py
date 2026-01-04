@@ -27,6 +27,10 @@ def get_current_profile_paths() -> ProfilePaths:
 # In production, use Redis or database
 _tasks = {}
 
+# Lock to prevent concurrent searches/matches
+_active_search_task_id: Optional[str] = None
+_active_match_task_id: Optional[str] = None
+
 
 class SearchRequest(BaseModel):
     """Search request parameters"""
@@ -265,6 +269,7 @@ def _run_full_search_pipeline(task_id: str, params, profile_name: str):
 
 async def run_search_task(task_id: str, params: SearchRequest):
     """Run job search in background."""
+    global _active_search_task_id
     try:
         update_task(task_id, status="running")
 
@@ -289,6 +294,11 @@ async def run_search_task(task_id: str, params: SearchRequest):
 
     except Exception as e:
         update_task(task_id, status="failed", error=str(e))
+    finally:
+        # Clear the active task lock
+        if _active_search_task_id == task_id:
+            _active_search_task_id = None
+        print(f"[API] Search task {task_id} finished, lock released")
 
 
 def _clean_job_dict(job: dict) -> dict:
@@ -459,6 +469,7 @@ def _run_full_match_pipeline(task_id: str, profile_name: str, source: Optional[s
 
 async def run_match_task(task_id: str, params: MatchRequest):
     """Run AI matching pipeline in background."""
+    global _active_match_task_id
     try:
         current_profile = get_active_profile()
 
@@ -489,12 +500,29 @@ async def run_match_task(task_id: str, params: MatchRequest):
 
     except Exception as e:
         update_task(task_id, status="failed", error=str(e))
+    finally:
+        # Clear the active task lock
+        if _active_match_task_id == task_id:
+            _active_match_task_id = None
+        print(f"[API] Match task {task_id} finished, lock released")
 
 
 @router.post("/search")
 async def start_search(request: SearchRequest):
     """Start a new job search."""
+    global _active_search_task_id
+
+    # Check if a search is already running
+    if _active_search_task_id:
+        task = get_task(_active_search_task_id)
+        if task and task["status"] in ("pending", "running"):
+            raise HTTPException(
+                status_code=409,
+                detail=f"A search is already running (task_id: {_active_search_task_id}). Please wait for it to complete."
+            )
+
     task_id = create_task("search")
+    _active_search_task_id = task_id
 
     # Run in background
     asyncio.create_task(run_search_task(task_id, request))
@@ -521,7 +549,19 @@ async def get_search_status(task_id: str):
 @router.post("/match")
 async def start_matching(request: MatchRequest):
     """Start AI matching pipeline."""
+    global _active_match_task_id
+
+    # Check if a match is already running
+    if _active_match_task_id:
+        task = get_task(_active_match_task_id)
+        if task and task["status"] in ("pending", "running"):
+            raise HTTPException(
+                status_code=409,
+                detail=f"A matching task is already running (task_id: {_active_match_task_id}). Please wait for it to complete."
+            )
+
     task_id = create_task("match")
+    _active_match_task_id = task_id
 
     # Run in background
     asyncio.create_task(run_match_task(task_id, request))
