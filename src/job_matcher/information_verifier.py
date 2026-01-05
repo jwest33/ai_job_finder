@@ -43,16 +43,31 @@ VERIFICATION CHECKLIST - Check each item carefully:
 4. Are ALL numbers and metrics preserved exactly (percentages, dollar amounts, team sizes, user counts)?
 5. Are ALL skills from the original present in the rewritten version?
 6. Are ALL certifications and education entries preserved?
-7. Has any NEW information been ADDED that wasn't in the original? (This is a CRITICAL problem!)
+7. Has any FABRICATED information been added? Check for:
+   - New job experiences or achievements not implied by the original
+   - Made-up metrics, numbers, or quantified results
+   - New certifications, degrees, or credentials
+   - Claims about technologies or skills with NO basis in the original
 
-IMPORTANT: Even small changes to facts are NOT acceptable. The rewrite should only change PHRASING, not FACTS.
+WHAT IS ACCEPTABLE (do NOT flag these as issues):
+- Rewording bullets for clarity while preserving meaning
+- Adding industry keywords that describe existing work (e.g., "built pipelines" → "built ETL/ELT data pipelines")
+- Emphasizing relevant aspects of existing experience
+- Reorganizing or reordering skills
+- Making implicit skills explicit (e.g., if they built dashboards, mentioning "data visualization")
+
+WHAT IS NOT ACCEPTABLE (flag these):
+- Inventing new achievements or metrics not in the original
+- Adding certifications, degrees, or job experiences
+- Claiming mastery of technologies not mentioned or implied
+- Changing factual details (dates, company names, titles)
 
 Return a JSON object with these exact fields:
-- "passed": true if ALL facts are preserved, false if ANY fact was changed/removed/added
+- "passed": true if all facts are preserved (acceptable changes are OK), false only for fabrications
 - "confidence": your confidence score from 0.0 to 1.0
 - "findings": list of your observations about fact preservation
-- "potential_issues": list of any facts that appear to have been changed, removed, or fabricated
-- "recommendation": either "APPROVE - all facts preserved" or "REJECT - [specific reason]" """
+- "potential_issues": list of any fabricated facts (not just rewordings)
+- "recommendation": either "APPROVE - facts preserved" or "REJECT - [specific fabrication found]" """
 
     def __init__(
         self,

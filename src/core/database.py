@@ -317,6 +317,20 @@ class DatabaseManager:
                 )
                 """)
 
+                # Tailored documents - stores generated resumes and cover letters per job
+                conn.execute("""
+                CREATE TABLE IF NOT EXISTS tailored_documents (
+                job_url VARCHAR NOT NULL,
+                document_type VARCHAR NOT NULL,
+                plain_text TEXT NOT NULL,
+                structured_data TEXT,
+                verification_data TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (job_url, document_type)
+                )
+                """)
+
                 # Create indexes for performance
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_source ON jobs(source)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_match_score ON jobs(match_score)")
@@ -329,6 +343,7 @@ class DatabaseManager:
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_applications_updated ON job_applications(updated_at)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_attachments_job_url ON job_attachments(job_url)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_attachments_type ON job_attachments(attachment_type)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_tailored_docs_job ON tailored_documents(job_url)")
 
                 DatabaseManager._schema_initialized[db_key] = True
             finally:

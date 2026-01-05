@@ -73,6 +73,7 @@ Write a professional cover letter that highlights the candidate's ACTUAL qualifi
         gap_analysis: Optional[Dict[str, Any]] = None,
         tone: str = "professional",
         max_words: int = 400,
+        template: Optional[str] = None,
     ) -> Optional[CoverLetter]:
         """
         Generate a cover letter for a specific job.
@@ -83,6 +84,7 @@ Write a professional cover letter that highlights the candidate's ACTUAL qualifi
             gap_analysis: Optional gap analysis with strengths/gaps
             tone: Writing tone (professional, enthusiastic, formal)
             max_words: Target word count
+            template: Optional cover letter template to use as style reference
 
         Returns:
             CoverLetter with cited facts, or None on failure
@@ -107,6 +109,7 @@ Write a professional cover letter that highlights the candidate's ACTUAL qualifi
             gap_analysis=gap_analysis,
             tone=tone,
             max_words=max_words,
+            template=template,
         )
 
         result = self.validation_engine.extract(
@@ -187,6 +190,7 @@ Write a professional cover letter that highlights the candidate's ACTUAL qualifi
         gap_analysis: Optional[Dict[str, Any]],
         tone: str,
         max_words: int,
+        template: Optional[str] = None,
     ) -> str:
         """Build the cover letter generation prompt."""
         # Format resume as text
@@ -198,6 +202,16 @@ Write a professional cover letter that highlights the candidate's ACTUAL qualifi
             strengths = gap_analysis["strengths"]
             if isinstance(strengths, list):
                 strengths_text = f"\n\nCANDIDATE STRENGTHS FOR THIS ROLE:\n" + "\n".join(f"- {s}" for s in strengths[:5])
+
+        # Format template reference if provided
+        template_text = ""
+        if template:
+            template_text = f"""
+
+STYLE TEMPLATE (use this as a reference for structure and tone):
+{template[:2000]}
+
+IMPORTANT: Use the structure and style of this template, but replace ALL content with facts from the candidate's resume. Do NOT copy any specific claims from the template."""
 
         # Limit facts to show in prompt
         facts_to_show = resume_facts[:25]
@@ -217,6 +231,7 @@ Company: {company}
 Job Description:
 {description[:2000]}
 {strengths_text}
+{template_text}
 
 COVER LETTER REQUIREMENTS:
 - Tone: {tone}

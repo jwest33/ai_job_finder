@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   FileText,
   Mail,
@@ -10,14 +10,21 @@ import {
   Loader2,
   Save,
   Download,
+  GitCompare,
+  FileOutput,
+  RefreshCw,
+  Upload,
+  Clock,
 } from 'lucide-react';
 import { Modal } from '../common/Modal';
-import { documentsApi } from '../../api/documents';
+import { documentsApi, type TailoredDocument } from '../../api/documents';
 import type { Job } from '../../types/job';
 import type {
   ResumeRewriteResponse,
   CoverLetterResponse,
   VerificationStatus,
+  RewrittenResume,
+  VerificationReport,
 } from '../../types/document';
 
 type DocumentType = 'resume' | 'cover-letter';
@@ -42,10 +49,57 @@ export function DocumentGenerationModal({
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showChanges, setShowChanges] = useState(false);
+
+  // Saved document state
+  const [isLoadingSaved, setIsLoadingSaved] = useState(false);
+  const [savedDocument, setSavedDocument] = useState<TailoredDocument | null>(null);
 
   // Cover letter options
   const [tone, setTone] = useState<'professional' | 'enthusiastic' | 'formal'>('professional');
   const [maxWords, setMaxWords] = useState(400);
+
+  // Cover letter template
+  const [showTemplateUpload, setShowTemplateUpload] = useState(false);
+  const [templateContent, setTemplateContent] = useState('');
+  const [uploadingTemplate, setUploadingTemplate] = useState(false);
+
+  // Check for saved document when modal opens
+  useEffect(() => {
+    if (isOpen && job) {
+      checkForSavedDocument();
+    }
+  }, [isOpen, job?.job_url, documentType]);
+
+  const checkForSavedDocument = async () => {
+    setIsLoadingSaved(true);
+    setSavedDocument(null);
+    try {
+      const docType = documentType === 'cover-letter' ? 'cover_letter' : 'resume';
+      const saved = await documentsApi.getTailoredDocument(docType, job.job_url);
+      if (saved.found) {
+        setSavedDocument(saved);
+        // Also populate the result states so the UI shows the saved document
+        if (documentType === 'resume' && saved.structured_data) {
+          setResumeResult({
+            success: true,
+            rewritten_resume: saved.structured_data as unknown as RewrittenResume,
+            verification: saved.verification_data as unknown as VerificationReport,
+            plain_text: saved.plain_text,
+          });
+        } else if (documentType === 'cover-letter' && saved.plain_text) {
+          setCoverLetterResult({
+            success: true,
+            plain_text: saved.plain_text,
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to check for saved document:', err);
+    } finally {
+      setIsLoadingSaved(false);
+    }
+  };
 
   const handleGenerate = async () => {
     setIsGenerating(true);
@@ -134,7 +188,34 @@ export function DocumentGenerationModal({
     setError(null);
     setCopied(false);
     setSaved(false);
+    setShowChanges(false);
+    setSavedDocument(null);
+    setShowTemplateUpload(false);
+    setTemplateContent('');
     onClose();
+  };
+
+  const handleRegenerate = async () => {
+    // Clear saved document state to force regeneration
+    setSavedDocument(null);
+    setResumeResult(null);
+    setCoverLetterResult(null);
+    // Trigger generation
+    await handleGenerate();
+  };
+
+  const handleUploadTemplate = async () => {
+    if (!templateContent.trim()) return;
+    setUploadingTemplate(true);
+    try {
+      await documentsApi.uploadCoverLetterTemplate(templateContent);
+      setShowTemplateUpload(false);
+      setTemplateContent('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to upload template');
+    } finally {
+      setUploadingTemplate(false);
+    }
   };
 
   const getVerificationIcon = (status: VerificationStatus) => {
@@ -180,11 +261,56 @@ export function DocumentGenerationModal({
           </p>
         </div>
 
+        {/* Loading state when checking for saved document */}
+        {isLoadingSaved && (
+          <div className="py-8 flex flex-col items-center justify-center gap-2">
+            <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
+            <p className="text-sm text-gray-600 dark:text-gray-400">Checking for saved document...</p>
+          </div>
+        )}
+
         {/* Generation Options (before generating) */}
-        {!hasResult && !isGenerating && !error && (
+        {!hasResult && !isGenerating && !error && !isLoadingSaved && (
           <div className="space-y-4">
             {documentType === 'cover-letter' && (
               <div className="space-y-3">
+                {/* Template Upload Toggle */}
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Use Custom Template
+                  </span>
+                  <button
+                    onClick={() => setShowTemplateUpload(!showTemplateUpload)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  >
+                    <Upload className="w-4 h-4" />
+                    {showTemplateUpload ? 'Hide' : 'Upload Template'}
+                  </button>
+                </div>
+
+                {/* Template Upload Form */}
+                {showTemplateUpload && (
+                  <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 space-y-2">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Paste a cover letter to use as a style reference. The AI will adapt this format while using your resume facts.
+                    </p>
+                    <textarea
+                      value={templateContent}
+                      onChange={(e) => setTemplateContent(e.target.value)}
+                      placeholder="Paste your cover letter template here..."
+                      className="w-full h-32 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      onClick={handleUploadTemplate}
+                      disabled={!templateContent.trim() || uploadingTemplate}
+                      className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg transition-colors flex items-center gap-1.5"
+                    >
+                      {uploadingTemplate ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      Save Template
+                    </button>
+                  </div>
+                )}
+
                 {/* Tone Selection */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -353,12 +479,155 @@ export function DocumentGenerationModal({
               </div>
             )}
 
+            {/* View Toggle (resume only) */}
+            {resumeResult?.rewritten_resume && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowChanges(false)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                    !showChanges
+                      ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-700'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  <FileOutput className="w-4 h-4" />
+                  Final Resume
+                </button>
+                <button
+                  onClick={() => setShowChanges(true)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                    showChanges
+                      ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-700'
+                      : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-600'
+                  }`}
+                >
+                  <GitCompare className="w-4 h-4" />
+                  Show Changes
+                </button>
+              </div>
+            )}
+
             {/* Document Content */}
-            <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-              <pre className="whitespace-pre-wrap text-sm text-gray-800 dark:text-gray-200 font-mono leading-relaxed">
-                {plainText}
-              </pre>
-            </div>
+            {(!resumeResult?.rewritten_resume || !showChanges) && (
+              <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                <pre className="whitespace-pre-wrap text-sm text-gray-800 dark:text-gray-200 font-mono leading-relaxed">
+                  {plainText}
+                </pre>
+              </div>
+            )}
+
+            {/* Diff View */}
+            {resumeResult?.rewritten_resume && showChanges && (
+              <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+                {/* Summary Changes */}
+                {resumeResult.rewritten_resume.summary && (
+                  <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                    <div className="bg-gray-100 dark:bg-gray-800 px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+                      <span className="font-medium text-gray-900 dark:text-white text-sm">Summary</span>
+                    </div>
+                    <div className="grid grid-cols-2 divide-x divide-gray-200 dark:divide-gray-700">
+                      <div className="p-3">
+                        <div className="text-xs font-medium text-red-600 dark:text-red-400 mb-1">Original</div>
+                        <p className="text-sm text-gray-700 dark:text-gray-300">
+                          {resumeResult.rewritten_resume.summary.original}
+                        </p>
+                      </div>
+                      <div className="p-3 bg-green-50/50 dark:bg-green-900/10">
+                        <div className="text-xs font-medium text-green-600 dark:text-green-400 mb-1">Rewritten</div>
+                        <p className="text-sm text-gray-700 dark:text-gray-300">
+                          {resumeResult.rewritten_resume.summary.rewritten}
+                        </p>
+                      </div>
+                    </div>
+                    {resumeResult.rewritten_resume.summary.changes_made.length > 0 && (
+                      <div className="px-3 py-2 bg-blue-50 dark:bg-blue-900/20 border-t border-gray-200 dark:border-gray-700">
+                        <span className="text-xs text-blue-700 dark:text-blue-300">
+                          Changes: {resumeResult.rewritten_resume.summary.changes_made.join(' • ')}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Experience Changes */}
+                {resumeResult.rewritten_resume.experience.map((exp, expIdx) => (
+                  <div key={expIdx} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                    <div className="bg-gray-100 dark:bg-gray-800 px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+                      <span className="font-medium text-gray-900 dark:text-white text-sm">
+                        {exp.title} at {exp.company}
+                      </span>
+                      <span className="text-gray-500 dark:text-gray-400 text-xs ml-2">
+                        {exp.start_date} - {exp.end_date}
+                      </span>
+                    </div>
+                    <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                      {exp.original_bullets.map((originalBullet, bulletIdx) => (
+                        <div key={bulletIdx} className="grid grid-cols-2 divide-x divide-gray-200 dark:divide-gray-700">
+                          <div className="p-2">
+                            <span className="text-xs text-red-500 dark:text-red-400 mr-1">−</span>
+                            <span className="text-sm text-gray-700 dark:text-gray-300">{originalBullet}</span>
+                          </div>
+                          <div className="p-2 bg-green-50/50 dark:bg-green-900/10">
+                            <span className="text-xs text-green-500 dark:text-green-400 mr-1">+</span>
+                            <span className="text-sm text-gray-700 dark:text-gray-300">
+                              {exp.rewritten_bullets[bulletIdx] || originalBullet}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {exp.bullet_changes.length > 0 && (
+                      <div className="px-3 py-2 bg-blue-50 dark:bg-blue-900/20 border-t border-gray-200 dark:border-gray-700">
+                        <span className="text-xs text-blue-700 dark:text-blue-300">
+                          {exp.bullet_changes.join(' • ')}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {/* Skills Changes */}
+                {resumeResult.rewritten_resume.skills && (
+                  <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                    <div className="bg-gray-100 dark:bg-gray-800 px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+                      <span className="font-medium text-gray-900 dark:text-white text-sm">Skills</span>
+                    </div>
+                    <div className="grid grid-cols-2 divide-x divide-gray-200 dark:divide-gray-700">
+                      <div className="p-3">
+                        <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Original Order</div>
+                        <div className="flex flex-wrap gap-1">
+                          {resumeResult.rewritten_resume.skills.original_skills.map((skill, i) => (
+                            <span key={i} className="px-2 py-0.5 text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded">
+                              {skill}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="p-3 bg-green-50/50 dark:bg-green-900/10">
+                        <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Reordered (Relevant First)</div>
+                        <div className="flex flex-wrap gap-1">
+                          {resumeResult.rewritten_resume.skills.rewritten_skills.map((skill, i) => {
+                            const isHighlighted = resumeResult.rewritten_resume!.skills.skills_highlighted.includes(skill);
+                            return (
+                              <span
+                                key={i}
+                                className={`px-2 py-0.5 text-xs rounded ${
+                                  isHighlighted
+                                    ? 'bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200 font-medium'
+                                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                }`}
+                              >
+                                {skill}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Action Buttons */}
             <div className="flex items-center gap-2">
@@ -403,13 +672,29 @@ export function DocumentGenerationModal({
               )}
             </div>
 
-            {/* Generate another */}
-            <button
-              onClick={handleGenerate}
-              className="w-full py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
-            >
-              Regenerate
-            </button>
+            {/* Saved document info & Regenerate */}
+            <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
+              {savedDocument?.updated_at && (
+                <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>
+                    Saved {new Date(savedDocument.updated_at).toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                </div>
+              )}
+              <button
+                onClick={handleRegenerate}
+                className="flex items-center gap-1.5 py-1.5 px-3 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors ml-auto"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Regenerate
+              </button>
+            </div>
           </div>
         )}
       </div>

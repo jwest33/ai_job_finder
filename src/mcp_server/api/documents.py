@@ -5,6 +5,7 @@ REST endpoints for resume rewriting and cover letter generation.
 """
 
 import asyncio
+import json
 import logging
 from typing import Optional
 from urllib.parse import unquote
@@ -22,10 +23,84 @@ from src.job_matcher.cover_letter_generator import CoverLetterGenerator
 from src.job_matcher.models.resume_rewrite import (
     ResumeRewriteRequest, ResumeRewriteResponse,
     CoverLetterRequest, CoverLetterResponse,
-    RewrittenResume
+    RewrittenResume, VerificationReport
 )
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Tailored Document Storage
+# =============================================================================
+
+class TailoredDocumentResponse(BaseModel):
+    """Response for saved tailored document."""
+    found: bool
+    document_type: Optional[str] = None
+    plain_text: Optional[str] = None
+    structured_data: Optional[dict] = None
+    verification_data: Optional[dict] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class CoverLetterTemplateRequest(BaseModel):
+    """Request to upload a cover letter template."""
+    content: str
+
+
+def _save_tailored_document(
+    job_url: str,
+    document_type: str,
+    plain_text: str,
+    structured_data: Optional[dict] = None,
+    verification_data: Optional[dict] = None,
+) -> bool:
+    """Save a tailored document to the database."""
+    db = get_profile_database()
+    try:
+        db.execute("""
+            INSERT INTO tailored_documents (job_url, document_type, plain_text, structured_data, verification_data, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT (job_url, document_type) DO UPDATE SET
+                plain_text = EXCLUDED.plain_text,
+                structured_data = EXCLUDED.structured_data,
+                verification_data = EXCLUDED.verification_data,
+                updated_at = CURRENT_TIMESTAMP
+        """, (
+            job_url,
+            document_type,
+            plain_text,
+            json.dumps(structured_data) if structured_data else None,
+            json.dumps(verification_data) if verification_data else None,
+        ))
+        return True
+    except Exception as e:
+        logger.exception(f"Failed to save tailored document: {e}")
+        return False
+
+
+def _get_tailored_document(job_url: str, document_type: str) -> Optional[dict]:
+    """Get a saved tailored document from the database."""
+    db = get_profile_database()
+    result = db.fetchone("""
+        SELECT plain_text, structured_data, verification_data, created_at, updated_at
+        FROM tailored_documents
+        WHERE job_url = ? AND document_type = ?
+    """, (job_url, document_type))
+
+    if not result:
+        return None
+
+    return {
+        "plain_text": result[0],
+        "structured_data": json.loads(result[1]) if result[1] else None,
+        "verification_data": json.loads(result[2]) if result[2] else None,
+        "created_at": str(result[3]) if result[3] else None,
+        "updated_at": str(result[4]) if result[4] else None,
+    }
+
+
 router = APIRouter()
 
 
@@ -90,18 +165,32 @@ def _load_job(job_url: str) -> Optional[dict]:
         "salary_max": job_result[9],
     }
 
-    # Get analysis data if available
+    # Get analysis data if available (stored in jobs table)
     analysis_result = db.fetchone("""
-        SELECT match_score, strengths, gaps, assessment
-        FROM job_analysis
+        SELECT match_score, gap_analysis, match_explanation
+        FROM jobs
         WHERE job_url = ?
     """, (job_url,))
 
     if analysis_result:
         job["match_score"] = analysis_result[0]
-        job["strengths"] = analysis_result[1].split("\n") if analysis_result[1] else []
-        job["gaps"] = analysis_result[2].split("\n") if analysis_result[2] else []
-        job["assessment"] = analysis_result[3]
+        # gap_analysis is stored as JSON text with {strengths, gaps, red_flags, assessment}
+        gap_analysis_text = analysis_result[1]
+        if gap_analysis_text:
+            try:
+                gap_data = json.loads(gap_analysis_text)
+                job["strengths"] = gap_data.get("strengths", [])
+                job["gaps"] = gap_data.get("gaps", [])
+                job["assessment"] = gap_data.get("assessment", "")
+            except (json.JSONDecodeError, TypeError):
+                # Fallback if gap_analysis is plain text
+                job["strengths"] = []
+                job["gaps"] = []
+                job["assessment"] = gap_analysis_text
+        else:
+            job["strengths"] = []
+            job["gaps"] = []
+            job["assessment"] = analysis_result[2] or ""  # Use match_explanation as fallback
 
     return job
 
@@ -248,6 +337,15 @@ async def rewrite_resume(request: ResumeRewriteRequest):
         # Serialize to plain text
         plain_text = _serialize_rewritten_resume(rewritten)
 
+        # Auto-save the tailored resume
+        _save_tailored_document(
+            job_url=decoded_url,
+            document_type="resume",
+            plain_text=plain_text,
+            structured_data=rewritten.model_dump() if rewritten else None,
+            verification_data=result.model_dump() if result else None,
+        )
+
         return ResumeRewriteResponse(
             success=True,
             rewritten_resume=rewritten,
@@ -306,6 +404,17 @@ async def generate_cover_letter(request: CoverLetterRequest):
                 "gaps": job.get("gaps", []),
             }
 
+        # Load cover letter template if available
+        template = None
+        paths = get_current_profile_paths()
+        template_path = paths.templates_dir / "cover_letter_template.txt"
+        if template_path.exists():
+            try:
+                template = template_path.read_text(encoding='utf-8')
+                logger.info("Using cover letter template")
+            except Exception as e:
+                logger.warning(f"Failed to load cover letter template: {e}")
+
         # Generate cover letter
         generator = CoverLetterGenerator()
         cover_letter = generator.generate(
@@ -314,6 +423,7 @@ async def generate_cover_letter(request: CoverLetterRequest):
             gap_analysis,
             tone=request.tone,
             max_words=request.max_words,
+            template=template,
         )
 
         return cover_letter, None
@@ -330,10 +440,20 @@ async def generate_cover_letter(request: CoverLetterRequest):
                 error="Failed to generate cover letter"
             )
 
+        plain_text = cover_letter.to_text()
+
+        # Auto-save the cover letter
+        _save_tailored_document(
+            job_url=decoded_url,
+            document_type="cover_letter",
+            plain_text=plain_text,
+            structured_data=cover_letter.model_dump() if cover_letter else None,
+        )
+
         return CoverLetterResponse(
             success=True,
             cover_letter=cover_letter,
-            plain_text=cover_letter.to_text(),
+            plain_text=plain_text,
         )
 
     except Exception as e:
@@ -395,3 +515,91 @@ async def get_saved_cover_letter(job_url: str):
         "content": result[0],
         "updated_at": str(result[1]) if result[1] else None,
     }
+
+
+# =============================================================================
+# Tailored Documents Endpoints
+# =============================================================================
+
+@router.get("/tailored/{document_type}/{job_url:path}", response_model=TailoredDocumentResponse)
+async def get_tailored_document(document_type: str, job_url: str):
+    """
+    Get a saved tailored document (resume or cover letter) for a job.
+
+    Args:
+        document_type: Either 'resume' or 'cover_letter'
+        job_url: URL-encoded job URL
+    """
+    if document_type not in ('resume', 'cover_letter'):
+        raise HTTPException(status_code=400, detail="document_type must be 'resume' or 'cover_letter'")
+
+    decoded_url = unquote(job_url)
+    doc = _get_tailored_document(decoded_url, document_type)
+
+    if not doc:
+        return TailoredDocumentResponse(found=False)
+
+    return TailoredDocumentResponse(
+        found=True,
+        document_type=document_type,
+        plain_text=doc["plain_text"],
+        structured_data=doc["structured_data"],
+        verification_data=doc["verification_data"],
+        created_at=doc["created_at"],
+        updated_at=doc["updated_at"],
+    )
+
+
+@router.delete("/tailored/{document_type}/{job_url:path}")
+async def delete_tailored_document(document_type: str, job_url: str):
+    """Delete a saved tailored document to allow regeneration."""
+    if document_type not in ('resume', 'cover_letter'):
+        raise HTTPException(status_code=400, detail="document_type must be 'resume' or 'cover_letter'")
+
+    decoded_url = unquote(job_url)
+    db = get_profile_database()
+
+    try:
+        db.execute("""
+            DELETE FROM tailored_documents
+            WHERE job_url = ? AND document_type = ?
+        """, (decoded_url, document_type))
+        return {"success": True, "message": f"Deleted {document_type} for job"}
+    except Exception as e:
+        logger.exception(f"Failed to delete tailored document: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/cover-letter/template")
+async def upload_cover_letter_template(request: CoverLetterTemplateRequest):
+    """
+    Upload a cover letter template to use as a base for generation.
+
+    The template will be saved to the profile's templates directory.
+    """
+    paths = get_current_profile_paths()
+    template_path = paths.templates_dir / "cover_letter_template.txt"
+
+    try:
+        template_path.write_text(request.content, encoding='utf-8')
+        return {"success": True, "message": "Cover letter template saved", "path": str(template_path)}
+    except Exception as e:
+        logger.exception(f"Failed to save cover letter template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/cover-letter/template")
+async def get_cover_letter_template():
+    """Get the saved cover letter template if it exists."""
+    paths = get_current_profile_paths()
+    template_path = paths.templates_dir / "cover_letter_template.txt"
+
+    if not template_path.exists():
+        return {"found": False, "content": None}
+
+    try:
+        content = template_path.read_text(encoding='utf-8')
+        return {"found": True, "content": content}
+    except Exception as e:
+        logger.exception(f"Failed to read cover letter template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
