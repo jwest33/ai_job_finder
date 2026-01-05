@@ -15,6 +15,8 @@ import {
   XCircle,
   AlertCircle,
   Upload,
+  FileText,
+  Mail,
 } from 'lucide-react';
 import { jobsApi } from '../api/jobs';
 import { Card, CardTitle } from '../components/common/Card';
@@ -23,6 +25,7 @@ import { Button } from '../components/common/Button';
 import { LoadingPage } from '../components/common/LoadingSpinner';
 import { JobScoreBadge, JobScoreBar } from '../components/jobs/JobScoreBadge';
 import { JobStatusDropdown } from '../components/jobs/JobStatusDropdown';
+import { DocumentGenerationModal } from '../components/jobs/DocumentGenerationModal';
 import { AttachmentList } from '../components/jobs/AttachmentList';
 import { AttachmentUploadModal } from '../components/jobs/AttachmentUploadModal';
 import { useJobStore } from '../store/jobStore';
@@ -41,6 +44,13 @@ export function JobDetailPage() {
   const queryClient = useQueryClient();
   const { updateApplicationStatus } = useJobStore();
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [documentModalOpen, setDocumentModalOpen] = useState(false);
+  const [documentType, setDocumentType] = useState<'resume' | 'cover-letter'>('resume');
+
+  const openDocumentModal = (type: 'resume' | 'cover-letter') => {
+    setDocumentType(type);
+    setDocumentModalOpen(true);
+  };
 
   const { data: job, isLoading, error } = useQuery({
     queryKey: ['job', decodedUrl],
@@ -158,11 +168,25 @@ export function JobDetailPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3 mt-6 pt-6 border-t border-gray-100 dark:border-gray-700">
+            <div className="flex flex-wrap items-center gap-3 mt-6 pt-6 border-t border-gray-100 dark:border-gray-700">
               <JobStatusDropdown
                 status={job.application_status || 'not_applied'}
                 onChange={handleStatusChange}
               />
+              <Button
+                variant="secondary"
+                onClick={() => openDocumentModal('resume')}
+              >
+                <FileText className="w-4 h-4 mr-2" />
+                Tailored Resume
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => openDocumentModal('cover-letter')}
+              >
+                <Mail className="w-4 h-4 mr-2" />
+                Cover Letter
+              </Button>
               <Button
                 onClick={() => window.open(job.job_url, '_blank')}
               >
@@ -401,6 +425,14 @@ export function JobDetailPage() {
           queryClient.invalidateQueries({ queryKey: ['attachments', decodedUrl] });
           toast.success('Attachment uploaded successfully');
         }}
+      />
+
+      {/* Document Generation Modal */}
+      <DocumentGenerationModal
+        isOpen={documentModalOpen}
+        onClose={() => setDocumentModalOpen(false)}
+        job={job}
+        documentType={documentType}
       />
 
       {/* Skills & Requirements */}

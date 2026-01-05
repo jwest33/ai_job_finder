@@ -6,6 +6,7 @@ Settings are stored in ai_settings.json in the project root.
 Falls back to .env configuration for backwards compatibility.
 """
 
+import ast
 import json
 import os
 from dataclasses import dataclass, field, asdict
@@ -82,50 +83,78 @@ class AISettings:
         return self.model  # Default to same model
 
 
+def _normalize_base_url(url: str) -> str:
+    """
+    Normalize a base URL to ensure proper format.
+
+    - Strips trailing slashes
+    - Ensures /v1 suffix for OpenAI compatibility
+    - Handles comma-separated URLs (takes first)
+
+    Args:
+        url: The URL to normalize
+
+    Returns:
+        Normalized URL string
+    """
+    # Handle comma-separated URLs (take first one)
+    if "," in url:
+        url = url.split(",")[0].strip()
+    elif url.strip().startswith("["):
+        # Handle list format [url1, url2]
+        try:
+            urls = ast.literal_eval(url)
+            if isinstance(urls, list) and urls:
+                url = urls[0]
+        except (ValueError, SyntaxError):
+            pass
+
+    # Ensure URL has /v1 suffix for OpenAI compatibility
+    base_url = url.rstrip("/")
+    if not base_url.endswith("/v1"):
+        base_url = f"{base_url}/v1"
+
+    return base_url
+
+
 def load_ai_settings() -> AISettings:
     """
     Load AI settings from file or environment.
 
     Priority:
-    1. ai_settings.json if it exists
+    1. ai_settings.json if it exists (with env var overrides)
     2. Environment variables (.env) as fallback
+
+    Environment variable overrides (useful for Docker):
+    - AI_BASE_URL: Overrides base_url from JSON
+      Example: AI_BASE_URL=http://host.docker.internal:8080/v1
 
     Returns:
         AISettings instance
     """
+    # Load environment variables first (needed for potential overrides)
+    load_dotenv(override=True)
+
     # Try loading from JSON file first
     if SETTINGS_FILE.exists():
         try:
             with open(SETTINGS_FILE, "r") as f:
                 data = json.load(f)
-            return AISettings.from_dict(data)
+            settings = AISettings.from_dict(data)
+
+            # Allow environment variable overrides (useful for Docker)
+            env_base_url = os.getenv("AI_BASE_URL")
+            if env_base_url:
+                settings.base_url = _normalize_base_url(env_base_url)
+
+            return settings
         except (json.JSONDecodeError, IOError) as e:
             print(f"[WARNING] Failed to load ai_settings.json: {e}")
             # Fall through to env-based settings
 
-    # Fall back to environment variables
-    load_dotenv(override=True)
-
-    # Parse base URL from env
-    env_url = os.getenv("LLAMA_SERVER_URL", "http://localhost:8080")
-
-    # Handle comma-separated URLs (take first one)
-    if "," in env_url:
-        env_url = env_url.split(",")[0].strip()
-    elif env_url.strip().startswith("["):
-        # Handle list format [url1, url2]
-        import ast
-        try:
-            urls = ast.literal_eval(env_url)
-            if isinstance(urls, list) and urls:
-                env_url = urls[0]
-        except (ValueError, SyntaxError):
-            pass
-
-    # Ensure URL has /v1 suffix for OpenAI compatibility
-    base_url = env_url.rstrip("/")
-    if not base_url.endswith("/v1"):
-        base_url = f"{base_url}/v1"
+    # Parse base URL from env (AI_BASE_URL takes priority for Docker compatibility)
+    env_url = os.getenv("AI_BASE_URL") or os.getenv("LLAMA_SERVER_URL", "http://localhost:8080")
+    base_url = _normalize_base_url(env_url)
 
     return AISettings(
         provider_type="openai_compatible",
@@ -186,10 +215,12 @@ def delete_settings_file() -> bool:
 
 
 # Provider presets for common configurations
+# Note: For Docker, set AI_BASE_URL env var to use host.docker.internal instead of localhost
 PROVIDER_PRESETS = {
     "llama-server": {
         "name": "llama-server (Local)",
         "base_url": "http://localhost:8080/v1",
+        "docker_base_url": "http://host.docker.internal:8080/v1",
         "api_key": "",
         "model": "default",
         "description": "Local llama.cpp server. Start with: llama-server -m model.gguf",
@@ -197,6 +228,7 @@ PROVIDER_PRESETS = {
     "ollama": {
         "name": "Ollama (Local)",
         "base_url": "http://localhost:11434/v1",
+        "docker_base_url": "http://host.docker.internal:11434/v1",
         "api_key": "",
         "model": "llama3.2",
         "description": "Ollama local inference. Install: https://ollama.ai",
@@ -204,6 +236,7 @@ PROVIDER_PRESETS = {
     "lm-studio": {
         "name": "LM Studio (Local)",
         "base_url": "http://localhost:1234/v1",
+        "docker_base_url": "http://host.docker.internal:1234/v1",
         "api_key": "",
         "model": "default",
         "description": "LM Studio local server. Enable API in settings.",

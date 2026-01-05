@@ -14,7 +14,7 @@ const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/jobs', icon: Briefcase, label: 'Jobs' },
   { to: '/applications', icon: ClipboardList, label: 'Applications' },
-  { to: '/search', icon: Search, label: 'Search' },
+  { to: '/search', icon: Search, label: 'Search & Match' },
   { to: '/templates', icon: FileText, label: 'Templates' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];

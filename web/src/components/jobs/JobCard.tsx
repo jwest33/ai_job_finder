@@ -14,6 +14,7 @@ import {
   Sparkles,
   FileText,
   Target,
+  Mail,
 } from 'lucide-react';
 import {
   Job,
@@ -23,6 +24,7 @@ import {
 } from '../../types/job';
 import { JobScoreBadge } from './JobScoreBadge';
 import { JobStatusDropdown } from './JobStatusDropdown';
+import { DocumentGenerationModal } from './DocumentGenerationModal';
 import { Badge } from '../common/Badge';
 import { Card } from '../common/Card';
 import { formatDistanceToNow } from 'date-fns';
@@ -34,6 +36,13 @@ interface JobCardProps {
 
 export function JobCard({ job, onStatusChange }: JobCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [documentModalOpen, setDocumentModalOpen] = useState(false);
+  const [documentType, setDocumentType] = useState<'resume' | 'cover-letter'>('resume');
+
+  const openDocumentModal = (type: 'resume' | 'cover-letter') => {
+    setDocumentType(type);
+    setDocumentModalOpen(true);
+  };
 
   const gapAnalysis = parseGapAnalysis(job.gap_analysis);
   const resumeSuggestions = parseResumeSuggestions(job.resume_suggestions);
@@ -353,6 +362,22 @@ export function JobCard({ job, onStatusChange }: JobCardProps) {
               )}
             </div>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => openDocumentModal('resume')}
+                className="flex items-center gap-1 text-sm text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 transition-colors"
+                title="Generate tailored resume for this job"
+              >
+                <FileText className="w-4 h-4" />
+                Resume
+              </button>
+              <button
+                onClick={() => openDocumentModal('cover-letter')}
+                className="flex items-center gap-1 text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
+                title="Generate cover letter for this job"
+              >
+                <Mail className="w-4 h-4" />
+                Cover Letter
+              </button>
               <a
                 href={job.job_url}
                 target="_blank"
@@ -366,6 +391,14 @@ export function JobCard({ job, onStatusChange }: JobCardProps) {
           </div>
         </div>
       </div>
+
+      {/* Document Generation Modal */}
+      <DocumentGenerationModal
+        isOpen={documentModalOpen}
+        onClose={() => setDocumentModalOpen(false)}
+        job={job}
+        documentType={documentType}
+      />
     </Card>
   );
 }

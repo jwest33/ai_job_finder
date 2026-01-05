@@ -43,18 +43,18 @@ export function TagInput({ value, onChange, placeholder = 'Add item...', label, 
   return (
     <div className={className}>
       {label && (
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           {label}
         </label>
       )}
       <div
-        className="flex flex-wrap gap-2 p-2 border border-gray-300 rounded-lg bg-white min-h-[42px] cursor-text focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500"
+        className="flex flex-wrap gap-2 p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 min-h-[42px] cursor-text focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500"
         onClick={() => inputRef.current?.focus()}
       >
         {value.map((tag, index) => (
           <span
             key={index}
-            className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 text-sm rounded-md"
+            className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-sm rounded-md"
           >
             {tag}
             <button
@@ -63,7 +63,7 @@ export function TagInput({ value, onChange, placeholder = 'Add item...', label, 
                 e.stopPropagation();
                 removeTag(index);
               }}
-              className="hover:bg-blue-200 rounded p-0.5"
+              className="hover:bg-blue-200 dark:hover:bg-blue-800 rounded p-0.5"
             >
               <X className="w-3 h-3" />
             </button>
@@ -77,10 +77,10 @@ export function TagInput({ value, onChange, placeholder = 'Add item...', label, 
           onKeyDown={handleKeyDown}
           onBlur={handleBlur}
           placeholder={value.length === 0 ? placeholder : ''}
-          className="flex-1 min-w-[120px] outline-none text-sm bg-transparent"
+          className="flex-1 min-w-[120px] outline-none text-sm bg-transparent text-gray-900 dark:text-gray-100 placeholder-gray-400"
         />
       </div>
-      <p className="text-xs text-gray-500 mt-1">Press Enter or comma to add</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Press Enter or comma to add</p>
     </div>
   );
 }

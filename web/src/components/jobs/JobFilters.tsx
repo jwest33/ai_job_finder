@@ -46,7 +46,8 @@ export function JobFilters() {
     filters.min_score ||
     filters.remote !== null ||
     filters.status ||
-    filters.search;
+    filters.search ||
+    filters.scored_only === false;
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
@@ -138,6 +139,19 @@ export function JobFilters() {
             { value: 'asc', label: 'Ascending' },
           ]}
         />
+      </div>
+
+      {/* Scored Only Checkbox */}
+      <div className="mt-4 flex items-center">
+        <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-700 dark:text-gray-300">
+          <input
+            type="checkbox"
+            checked={filters.scored_only ?? true}
+            onChange={(e) => setFilters({ scored_only: e.target.checked })}
+            className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500 dark:bg-gray-700"
+          />
+          Hide unscored jobs
+        </label>
       </div>
     </div>
   );

@@ -34,6 +34,7 @@ const defaultFilters: JobFilters = {
   company: null,
   status: null,
   search: null,
+  scored_only: true,
   sort_by: 'date_posted',
   sort_order: 'desc',
 };

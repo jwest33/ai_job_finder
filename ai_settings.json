@@ -1,6 +1,6 @@
 {
   "provider_type": "openai_compatible",
-  "base_url": "http://host.docker.internal:8080/v1",
+  "base_url": "http://localhost:8080/v1",
   "api_key": "",
   "model": "default",
   "vision_model": null,

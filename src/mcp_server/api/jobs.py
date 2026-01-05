@@ -123,7 +123,7 @@ class SourceCount(BaseModel):
 
 def _fetch_jobs_sync(
     source, min_score, max_score, remote, location, company, status, search,
-    sort_by, sort_order, page, page_size
+    sort_by, sort_order, page, page_size, scored_only
 ):
     """Synchronous helper to fetch jobs from database. Runs in thread pool."""
     db = get_profile_database()
@@ -131,6 +131,9 @@ def _fetch_jobs_sync(
     # Build query conditions
     conditions = []
     params = []
+
+    if scored_only:
+        conditions.append("j.match_score IS NOT NULL")
 
     if source:
         conditions.append("j.source = ?")
@@ -230,6 +233,7 @@ async def get_jobs(
     company: Optional[str] = None,
     status: Optional[str] = None,
     search: Optional[str] = None,
+    scored_only: bool = False,
     sort_by: str = Query("date_posted", regex="^(date_posted|match_score|first_seen|company|title)$"),
     sort_order: str = Query("desc", regex="^(asc|desc)$"),
     page: int = Query(1, ge=1),
@@ -242,7 +246,7 @@ async def get_jobs(
     total, columns, rows = await asyncio.to_thread(
         _fetch_jobs_sync,
         source, min_score, max_score, remote, location, company, status, search,
-        sort_by, sort_order, page, page_size
+        sort_by, sort_order, page, page_size, scored_only
     )
 
     items = []

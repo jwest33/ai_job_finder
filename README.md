@@ -31,7 +31,7 @@ Open http://localhost:3000
 
 ```bash
 # 0. Start llama-server, or update the settings for the correct API endpoint 
-llama-server --model "D:\models\gemma-3-27b-it\gemma-3-27b-it-UD-Q6_K_XL.gguf" --no-mmap --ctx-size 32768
+ llama-server --model "D:\models\Qwen3-30B-A3B-Instruct-2507\Qwen3-30B-A3B-Instruct-2507-Q6_K.gguf" --ctx-size 16384 -ngl 99
 ```
 
 ```bash

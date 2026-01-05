@@ -95,6 +95,7 @@ export interface JobFilters {
   company?: string | null;
   status?: ApplicationStatus | null;
   search?: string | null;
+  scored_only?: boolean;
   sort_by: 'date_posted' | 'match_score' | 'first_seen' | 'company' | 'title';
   sort_order: 'asc' | 'desc';
 }

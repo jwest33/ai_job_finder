@@ -66,6 +66,13 @@ RUN mkdir -p profiles
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
+# AI server URL - override to connect to host machine from container
+# Use host.docker.internal to reach services on the Docker host
+# Examples:
+#   AI_BASE_URL=http://host.docker.internal:8080/v1  (llama-server)
+#   AI_BASE_URL=http://host.docker.internal:11434/v1 (ollama)
+ENV AI_BASE_URL=http://host.docker.internal:8080/v1
+
 # Expose API port
 EXPOSE 3000
 

@@ -242,7 +242,7 @@ function ATSCategoryCard({ name, data }: { name: string; data: ATSCategoryResult
 
 function ATSScorePanel({ score, onClose }: { score: ATSScoreResult; onClose: () => void }) {
   return (
-    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm overflow-hidden">
+    <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm overflow-hidden flex flex-col flex-1 min-h-0">
       <div className="bg-gray-50 dark:bg-gray-700 px-4 py-3 border-b border-gray-200 dark:border-gray-600 flex items-center justify-between">
         <h3 className="font-semibold text-gray-900 dark:text-white">ATS Quality Score</h3>
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl leading-none">
@@ -250,7 +250,7 @@ function ATSScorePanel({ score, onClose }: { score: ATSScoreResult; onClose: () 
         </button>
       </div>
 
-      <div className="p-4 space-y-4 max-h-[600px] overflow-y-auto">
+      <div className="p-4 space-y-4 flex-1 overflow-y-auto">
         {/* Overall Score */}
         <div className="text-center py-4">
           <div className={clsx('text-5xl font-bold', getScoreColor(score.overall_score))}>
@@ -578,7 +578,7 @@ export function ResumeFormEditor({ content, onChange, onAnalyze, isAnalyzing, is
   // Show loading state while fetching cached ATS score
   if (isLoadingCachedScore) {
     return (
-      <div className="flex flex-col items-center justify-center h-[600px] text-gray-500 dark:text-gray-400">
+      <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
         <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-4" />
         <p className="text-sm">Loading cached ATS score...</p>
       </div>
@@ -588,7 +588,7 @@ export function ResumeFormEditor({ content, onChange, onAnalyze, isAnalyzing, is
   // Show analyze prompt if not yet parsed AND no cached ATS score
   if (!hasParsed && !isParsing && !atsScore) {
     return (
-      <div className="flex flex-col items-center justify-center h-[600px] text-gray-500 dark:text-gray-400 p-8">
+      <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400 p-8">
         <Zap className="w-12 h-12 text-gray-300 dark:text-gray-600 mb-4" />
         <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">Analyze Your Resume</h3>
         <p className="text-sm text-center text-gray-500 dark:text-gray-400 mb-6 max-w-md">
@@ -614,7 +614,7 @@ export function ResumeFormEditor({ content, onChange, onAnalyze, isAnalyzing, is
   // Show cached ATS score with option to parse for form editing
   if (!hasParsed && !isParsing && atsScore) {
     return (
-      <div className="space-y-4 p-4 max-h-[600px] overflow-y-auto">
+      <div className="flex flex-col gap-4 p-4 h-full overflow-y-auto">
         {/* Show cached ATS Score Panel */}
         {onClearAtsScore && (
           <ATSScorePanel score={atsScore} onClose={onClearAtsScore} />
@@ -641,7 +641,7 @@ export function ResumeFormEditor({ content, onChange, onAnalyze, isAnalyzing, is
   // Loading state
   if (isWorking) {
     return (
-      <div className="flex flex-col items-center justify-center h-[600px] text-gray-500 dark:text-gray-400">
+      <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
         <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-4" />
         <p className="text-sm">{isParsing ? 'Parsing resume...' : 'Analyzing ATS compatibility...'}</p>
         <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">This may take a few seconds</p>
@@ -650,7 +650,7 @@ export function ResumeFormEditor({ content, onChange, onAnalyze, isAnalyzing, is
   }
 
   return (
-    <div className="space-y-4 p-4 max-h-[600px] overflow-y-auto">
+    <div className="space-y-4 p-4 h-full overflow-y-auto">
       {/* ATS Score Panel */}
       {atsScore && onClearAtsScore && (
         <ATSScorePanel score={atsScore} onClose={onClearAtsScore} />

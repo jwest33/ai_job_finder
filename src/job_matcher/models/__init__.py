@@ -12,7 +12,26 @@ from .job_sections import (
     extract_job_sections,
 )
 
+from .resume_rewrite import (
+    VerificationStatus,
+    RewrittenSummary,
+    RewrittenExperienceEntry,
+    RewrittenSkills,
+    RewrittenResume,
+    FactDiscrepancy,
+    SchemaVerificationResult,
+    LLMVerificationResult,
+    VerificationReport,
+    CoverLetterParagraph,
+    CoverLetter,
+    ResumeRewriteRequest,
+    ResumeRewriteResponse,
+    CoverLetterRequest,
+    CoverLetterResponse,
+)
+
 __all__ = [
+    # Job sections
     "TitleSection",
     "RequirementsSection",
     "CompensationSection",
@@ -20,4 +39,20 @@ __all__ = [
     "CompanySection",
     "JobComparison",
     "extract_job_sections",
+    # Resume rewrite
+    "VerificationStatus",
+    "RewrittenSummary",
+    "RewrittenExperienceEntry",
+    "RewrittenSkills",
+    "RewrittenResume",
+    "FactDiscrepancy",
+    "SchemaVerificationResult",
+    "LLMVerificationResult",
+    "VerificationReport",
+    "CoverLetterParagraph",
+    "CoverLetter",
+    "ResumeRewriteRequest",
+    "ResumeRewriteResponse",
+    "CoverLetterRequest",
+    "CoverLetterResponse",
 ]

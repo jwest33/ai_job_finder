@@ -5,6 +5,7 @@ import { templatesApi } from '../api/templates';
 import { Card } from '../components/common/Card';
 import { Button } from '../components/common/Button';
 import { LoadingPage } from '../components/common/LoadingSpinner';
+import { ResizableContainer } from '../components/common/ResizableContainer';
 import { useToast } from '../store/uiStore';
 import { ResumeFormEditor } from '../components/templates/ResumeFormEditor';
 import { RequirementsFormEditor } from '../components/templates/RequirementsFormEditor';
@@ -363,41 +364,48 @@ export function TemplatesPage() {
           </div>
 
           {/* Editor Content */}
-          {activeTab === 'resume' ? (
-            viewMode === 'form' ? (
-              <ResumeFormEditor
-                content={resumeContent}
-                onChange={handleResumeContentChange}
-                onAnalyze={() => atsScoreMutation.mutate()}
-                isAnalyzing={isScoring}
-                isLoadingCachedScore={loadingAtsScore}
-                atsScore={atsScore}
-                onClearAtsScore={() => setAtsScore(null)}
-              />
+          <ResizableContainer
+            storageKey={activeTab === 'resume' ? 'resume-editor' : 'requirements-editor'}
+            defaultHeight={600}
+            minHeight={300}
+            maxHeight={1200}
+          >
+            {activeTab === 'resume' ? (
+              viewMode === 'form' ? (
+                <ResumeFormEditor
+                  content={resumeContent}
+                  onChange={handleResumeContentChange}
+                  onAnalyze={() => atsScoreMutation.mutate()}
+                  isAnalyzing={isScoring}
+                  isLoadingCachedScore={loadingAtsScore}
+                  atsScore={atsScore}
+                  onClearAtsScore={() => setAtsScore(null)}
+                />
+              ) : (
+                <textarea
+                  value={resumeContent}
+                  onChange={(e) => handleResumeContentChange(e.target.value)}
+                  className="w-full h-full p-4 font-mono text-sm resize-none focus:outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                  placeholder="Paste your resume here or upload a .docx file..."
+                  spellCheck
+                />
+              )
             ) : (
-              <textarea
-                value={resumeContent}
-                onChange={(e) => handleResumeContentChange(e.target.value)}
-                className="w-full h-[600px] p-4 font-mono text-sm resize-none focus:outline-none bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-                placeholder="Paste your resume here or upload a .docx file..."
-                spellCheck
-              />
-            )
-          ) : (
-            viewMode === 'form' ? (
-              <RequirementsFormEditor
-                content={requirementsContent}
-                onChange={handleRequirementsContentChange}
-              />
-            ) : (
-              <textarea
-                value={requirementsContent}
-                onChange={(e) => handleRequirementsContentChange(e.target.value)}
-                className="w-full h-[600px] p-4 font-mono text-sm resize-none focus:outline-none bg-gray-900 text-gray-100"
-                placeholder="Enter your requirements in YAML format..."
-              />
-            )
-          )}
+              viewMode === 'form' ? (
+                <RequirementsFormEditor
+                  content={requirementsContent}
+                  onChange={handleRequirementsContentChange}
+                />
+              ) : (
+                <textarea
+                  value={requirementsContent}
+                  onChange={(e) => handleRequirementsContentChange(e.target.value)}
+                  className="w-full h-full p-4 font-mono text-sm resize-none focus:outline-none bg-gray-900 text-gray-100"
+                  placeholder="Enter your requirements in YAML format..."
+                />
+              )
+            )}
+          </ResizableContainer>
         </Card>
       </div>
 

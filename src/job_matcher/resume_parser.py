@@ -1,13 +1,19 @@
 """
-Resume Parser - Uses LLM with Pydantic schema enforcement to parse resumes
+Resume Parser - Robust LLM-based resume parsing with Pydantic validation
 
-Extracts structured data from plain text resumes using AI with
-guaranteed output schema via Pydantic models.
+Uses the AI provider with Instructor-style validation and automatic retry logic.
+Extracts structured data from plain text resumes with guaranteed schema compliance.
 """
 
-from typing import Optional, List
-from pydantic import BaseModel, Field
-from .llama_client import LlamaClient, get_llama_client
+import logging
+from typing import Optional, List, Type, TypeVar, Dict, Any
+from pydantic import BaseModel, Field, ValidationError
+
+from src.ai import get_ai_provider, AIProvider
+
+logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 # ============================================================================
@@ -55,47 +61,262 @@ class ParsedResume(BaseModel):
 
 
 # ============================================================================
+# Schema Description Generator
+# ============================================================================
+
+def generate_schema_description(model: Type[BaseModel], indent: int = 0) -> str:
+    """
+    Generate a human-readable schema description for the LLM.
+
+    This is key to robust extraction - the LLM needs to understand
+    the expected output format explicitly since the JSON schema
+    constraint only affects token generation, not understanding.
+    """
+    lines = []
+    prefix = "  " * indent
+
+    schema = model.model_json_schema()
+    properties = schema.get("properties", {})
+    required = set(schema.get("required", []))
+
+    for field_name, field_info in properties.items():
+        field_type = field_info.get("type", "any")
+        description = field_info.get("description", "")
+        is_required = field_name in required
+
+        # Handle nested objects
+        if field_type == "object" and "$ref" in field_info:
+            ref_name = field_info["$ref"].split("/")[-1]
+            lines.append(f"{prefix}- {field_name}: (object) {description}")
+        elif field_type == "array":
+            items = field_info.get("items", {})
+            item_type = items.get("type", "any")
+            if "$ref" in items:
+                lines.append(f"{prefix}- {field_name}: (array of objects) {description}")
+            else:
+                lines.append(f"{prefix}- {field_name}: (array of {item_type}) {description}")
+        else:
+            req_marker = "*" if is_required else ""
+            lines.append(f"{prefix}- {field_name}{req_marker}: ({field_type}) {description}")
+
+    return "\n".join(lines)
+
+
+# ============================================================================
+# Instructor-Style Validation Engine
+# ============================================================================
+
+class ValidationRetryEngine:
+    """
+    Implements Instructor-style validation with automatic retry.
+
+    When the LLM output fails Pydantic validation, this engine:
+    1. Captures the validation errors
+    2. Constructs a retry prompt with error feedback
+    3. Retries until success or max_retries reached
+    """
+
+    def __init__(
+        self,
+        provider: AIProvider,
+        max_retries: int = 3,
+        temperature: float = 0.1,
+        max_tokens: int = 4096,
+    ):
+        self.provider = provider
+        self.max_retries = max_retries
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+
+    def extract(
+        self,
+        prompt: str,
+        response_model: Type[T],
+        context: Optional[str] = None,
+    ) -> Optional[T]:
+        """
+        Extract structured data from LLM with validation and retry.
+
+        Args:
+            prompt: The extraction prompt
+            response_model: Pydantic model class for validation
+            context: Optional context to include in retry prompts
+
+        Returns:
+            Validated Pydantic model instance or None if all retries fail
+        """
+        json_schema = response_model.model_json_schema()
+        last_error: Optional[str] = None
+        last_response: Optional[Dict[str, Any]] = None
+
+        for attempt in range(self.max_retries + 1):
+            # Build prompt with error feedback for retries
+            current_prompt = prompt
+            if attempt > 0 and last_error:
+                current_prompt = self._build_retry_prompt(
+                    original_prompt=prompt,
+                    last_response=last_response,
+                    validation_error=last_error,
+                    attempt=attempt,
+                )
+                logger.info(f"Retry {attempt}/{self.max_retries} after validation error")
+
+            # Generate JSON response
+            result = self.provider.generate_json(
+                prompt=current_prompt,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                json_schema=json_schema,
+            )
+
+            if result is None:
+                logger.warning(f"Attempt {attempt + 1}: LLM returned no result")
+                last_error = "LLM returned empty or unparseable response"
+                continue
+
+            last_response = result
+
+            # Validate with Pydantic
+            try:
+                validated = response_model.model_validate(result)
+                if attempt > 0:
+                    logger.info(f"Validation succeeded on retry {attempt}")
+                return validated
+            except ValidationError as e:
+                last_error = self._format_validation_error(e)
+                logger.debug(f"Attempt {attempt + 1} validation failed: {last_error}")
+                continue
+
+        logger.error(f"All {self.max_retries + 1} attempts failed. Last error: {last_error}")
+        return None
+
+    def _build_retry_prompt(
+        self,
+        original_prompt: str,
+        last_response: Optional[Dict[str, Any]],
+        validation_error: str,
+        attempt: int,
+    ) -> str:
+        """Build a retry prompt with validation error feedback."""
+        retry_section = f"""
+---
+VALIDATION ERROR (Attempt {attempt + 1}):
+Your previous response had validation errors:
+{validation_error}
+
+Please fix these issues and try again. Ensure your response matches the required schema exactly.
+---
+
+{original_prompt}"""
+        return retry_section
+
+    def _format_validation_error(self, error: ValidationError) -> str:
+        """Format Pydantic validation error for LLM feedback."""
+        lines = []
+        for err in error.errors():
+            loc = " -> ".join(str(x) for x in err["loc"])
+            msg = err["msg"]
+            lines.append(f"  - Field '{loc}': {msg}")
+        return "\n".join(lines)
+
+
+# ============================================================================
 # Resume Parser Class
 # ============================================================================
 
 class ResumeParser:
     """
-    Parses resume text into structured data using LLM with Pydantic schema enforcement.
+    Parses resume text into structured data using LLM with Pydantic validation.
+
+    Features:
+    - Uses existing AI provider from src.ai module
+    - Instructor-style automatic retry on validation failure
+    - Explicit schema description in prompts for better extraction
+    - Robust JSON extraction from various response formats
     """
 
-    PARSING_PROMPT = """You are an expert resume parser. Extract structured information from the following resume text.
+    SYSTEM_CONTEXT = """You are an expert resume parser. Your task is to extract structured information from resume text.
+
+IMPORTANT RULES:
+1. Extract ALL information present in the resume - do not skip any sections
+2. For fields not present in the resume, use empty string "" or empty array []
+3. Preserve original wording from the resume for bullet points and descriptions
+4. Dates should be in their original format (e.g., "Jan 2020", "2020", "January 2020 - Present")
+5. Return ONLY valid JSON matching the schema - no explanations or additional text"""
+
+    EXTRACTION_PROMPT = """Extract structured information from the following resume.
+
+EXPECTED OUTPUT SCHEMA:
+{schema_description}
 
 RESUME TEXT:
 ---
 {resume_text}
 ---
 
-INSTRUCTIONS:
-1. Extract ALL information present in the resume
-2. For contact info, look for name (usually at top), email, phone, location, LinkedIn, website
-3. For experience, extract each job with title, company, dates, location, and bullet points
-4. For education, extract degree, school, year, GPA if present, honors
-5. For skills, extract all technical and soft skills mentioned
-6. If a field is not present in the resume, leave it as empty string or empty list
-7. Preserve the original wording from the resume for bullet points and descriptions
-8. Dates should be in their original format (e.g., "Jan 2020", "2020", "January 2020 - Present")
+Extract all available information into the JSON structure. For any missing fields, use empty string or empty array as appropriate."""
 
-IMPORTANT: Return ONLY valid JSON matching the exact schema provided. No explanations."""
-
-    def __init__(self, client: Optional[LlamaClient] = None):
+    def __init__(
+        self,
+        provider: Optional[AIProvider] = None,
+        max_retries: int = 3,
+        temperature: float = 0.1,
+        max_tokens: int = 4096,
+    ):
         """
-        Initialize Resume Parser
+        Initialize Resume Parser.
 
         Args:
-            client: Optional LlamaClient instance. If not provided, creates one.
+            provider: Optional AIProvider instance. If not provided, uses get_ai_provider().
+            max_retries: Maximum retry attempts on validation failure (default: 3)
+            temperature: LLM temperature for extraction (default: 0.1 for consistency)
+            max_tokens: Maximum tokens for response (default: 4096)
         """
-        self.client = client or get_llama_client()
-        # Generate JSON schema from Pydantic model
-        self.json_schema = ParsedResume.model_json_schema()
+        self.provider = provider or get_ai_provider()
+        self.validation_engine = ValidationRetryEngine(
+            provider=self.provider,
+            max_retries=max_retries,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+        # Pre-generate schema description
+        self._schema_description = self._generate_full_schema_description()
+
+    def _generate_full_schema_description(self) -> str:
+        """Generate complete schema description for prompts."""
+        lines = [
+            "Root object (ParsedResume):",
+            "- contact: (object) Contact information",
+            "    - name: (string) Full name",
+            "    - email: (string) Email address",
+            "    - phone: (string) Phone number",
+            "    - location: (string) City, State or address",
+            "    - linkedin: (string) LinkedIn URL",
+            "    - website: (string) Personal website URL",
+            "- summary: (string) Professional summary or objective statement",
+            "- experience: (array) List of work experience entries, each with:",
+            "    - title: (string) Job title",
+            "    - company: (string) Company name",
+            "    - start_date: (string) Start date",
+            "    - end_date: (string) End date or 'Present'",
+            "    - location: (string) Job location",
+            "    - bullets: (array of strings) List of accomplishments/responsibilities",
+            "- education: (array) List of education entries, each with:",
+            "    - degree: (string) Degree name",
+            "    - school: (string) School/University name",
+            "    - year: (string) Graduation year or date range",
+            "    - gpa: (string) GPA if mentioned",
+            "    - honors: (string) Honors or distinctions",
+            "- skills: (array of strings) Technical and soft skills",
+            "- certifications: (array of strings) Certifications and licenses",
+            "- languages: (array of strings) Languages spoken",
+        ]
+        return "\n".join(lines)
 
     def parse(self, resume_text: str) -> Optional[ParsedResume]:
         """
-        Parse resume text into structured data
+        Parse resume text into structured data.
 
         Args:
             resume_text: Plain text resume content
@@ -104,36 +325,46 @@ IMPORTANT: Return ONLY valid JSON matching the exact schema provided. No explana
             ParsedResume object with extracted data, or None if parsing fails
         """
         if not resume_text or not resume_text.strip():
+            logger.warning("Empty resume text provided")
             return None
 
-        prompt = self.PARSING_PROMPT.format(resume_text=resume_text)
+        # Build extraction prompt with schema description
+        prompt = f"{self.SYSTEM_CONTEXT}\n\n{self.EXTRACTION_PROMPT.format(schema_description=self._schema_description, resume_text=resume_text)}"
 
-        # Call LLM with JSON schema enforcement
-        result = self.client.generate_json(
+        # Use validation engine for extraction with retry
+        result = self.validation_engine.extract(
             prompt=prompt,
-            temperature=0.1,  # Low temperature for consistent extraction
-            max_tokens=4096,  # Resumes can be long
-            json_schema=self.json_schema
+            response_model=ParsedResume,
+            context=resume_text[:500],  # First 500 chars as context for retries
         )
 
-        if not result:
-            return None
-
-        try:
-            # Validate and parse using Pydantic
-            return ParsedResume.model_validate(result)
-        except Exception as e:
-            print(f"[ERROR] Failed to validate parsed resume: {e}")
-            return None
+        return result
 
     def test_connection(self) -> bool:
-        """Test if the AI server is available"""
-        return self.client.test_connection()
+        """Test if the AI provider is available."""
+        try:
+            result = self.provider.test_connection()
+            return result.success
+        except Exception as e:
+            logger.error(f"Connection test failed: {e}")
+            return False
 
 
-def get_resume_parser() -> ResumeParser:
-    """Get a ResumeParser instance"""
-    return ResumeParser()
+def get_resume_parser(
+    max_retries: int = 3,
+    temperature: float = 0.1,
+) -> ResumeParser:
+    """
+    Get a ResumeParser instance.
+
+    Args:
+        max_retries: Maximum retry attempts on validation failure
+        temperature: LLM temperature (lower = more consistent)
+
+    Returns:
+        Configured ResumeParser instance
+    """
+    return ResumeParser(max_retries=max_retries, temperature=temperature)
 
 
 # ============================================================================
@@ -142,7 +373,7 @@ def get_resume_parser() -> ResumeParser:
 
 def serialize_resume_to_text(data: ParsedResume) -> str:
     """
-    Convert ParsedResume back to plain text format
+    Convert ParsedResume back to plain text format.
 
     Args:
         data: ParsedResume object
@@ -194,7 +425,7 @@ def serialize_resume_to_text(data: ParsedResume) -> str:
 
             for bullet in job.bullets:
                 if bullet.strip():
-                    lines.append(f"• {bullet}")
+                    lines.append(f"  - {bullet}")
 
             lines.append("")
 
@@ -227,7 +458,7 @@ def serialize_resume_to_text(data: ParsedResume) -> str:
         lines.append("CERTIFICATIONS")
         lines.append("")
         for cert in data.certifications:
-            lines.append(f"• {cert}")
+            lines.append(f"  - {cert}")
         lines.append("")
 
     # Languages
@@ -239,15 +470,114 @@ def serialize_resume_to_text(data: ParsedResume) -> str:
     return "\n".join(lines).strip()
 
 
+# ============================================================================
+# CLI
+# ============================================================================
+
+def print_parsed_resume(result: ParsedResume, verbose: bool = False) -> None:
+    """Print parsed resume in a readable format."""
+    print(f"\nName: {result.contact.name}")
+    print(f"Email: {result.contact.email}")
+    print(f"Phone: {result.contact.phone}")
+    print(f"Location: {result.contact.location}")
+    if result.contact.linkedin:
+        print(f"LinkedIn: {result.contact.linkedin}")
+    if result.contact.website:
+        print(f"Website: {result.contact.website}")
+
+    if result.summary:
+        summary_display = result.summary[:100] + "..." if len(result.summary) > 100 else result.summary
+        print(f"\nSummary: {summary_display}")
+
+    print(f"\nExperience: {len(result.experience)} entries")
+    for job in result.experience:
+        print(f"  - {job.title} at {job.company} ({job.start_date} - {job.end_date})")
+        if verbose:
+            for bullet in job.bullets:
+                print(f"      * {bullet[:80]}{'...' if len(bullet) > 80 else ''}")
+
+    print(f"\nEducation: {len(result.education)} entries")
+    for edu in result.education:
+        print(f"  - {edu.degree} from {edu.school}" + (f" ({edu.year})" if edu.year else ""))
+
+    print(f"\nSkills: {len(result.skills)}")
+    if result.skills:
+        skills_display = ", ".join(result.skills[:8])
+        if len(result.skills) > 8:
+            skills_display += f"... (+{len(result.skills) - 8} more)"
+        print(f"  {skills_display}")
+
+    if result.certifications:
+        print(f"\nCertifications: {len(result.certifications)}")
+        for cert in result.certifications:
+            print(f"  - {cert}")
+
+    if result.languages:
+        print(f"\nLanguages: {', '.join(result.languages)}")
+
+
 if __name__ == "__main__":
-    # Test the parser
-    print("Testing Resume Parser...")
-    parser = ResumeParser()
+    import sys
+    import argparse
 
-    if parser.test_connection():
-        print("Connection successful!")
+    arg_parser = argparse.ArgumentParser(
+        description="Parse resume text into structured data using LLM",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python -m src.job_matcher.resume_parser resume.txt
+  python -m src.job_matcher.resume_parser profiles/default/templates/resume.txt -v
+  python -m src.job_matcher.resume_parser --json resume.txt > parsed.json
+  cat resume.txt | python -m src.job_matcher.resume_parser -
+"""
+    )
+    arg_parser.add_argument(
+        "file",
+        nargs="?",
+        help="Path to resume text file (use '-' for stdin, omit for sample)"
+    )
+    arg_parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Show detailed output including bullet points"
+    )
+    arg_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output as JSON instead of formatted text"
+    )
+    arg_parser.add_argument(
+        "--retries",
+        type=int,
+        default=3,
+        help="Max retry attempts on validation failure (default: 3)"
+    )
 
-        sample_resume = """
+    args = arg_parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+
+    # Load resume text
+    if args.file == "-":
+        # Read from stdin
+        resume_text = sys.stdin.read()
+    elif args.file:
+        # Read from file
+        try:
+            with open(args.file, "r", encoding="utf-8") as f:
+                resume_text = f.read()
+        except FileNotFoundError:
+            print(f"Error: File not found: {args.file}", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"Error reading file: {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        # Use sample resume
+        resume_text = """
 John Smith
 john.smith@email.com | (555) 123-4567 | New York, NY
 linkedin.com/in/johnsmith
@@ -257,13 +587,13 @@ Experienced software engineer with 5+ years building scalable web applications.
 EXPERIENCE
 
 Senior Software Engineer | Tech Corp | Jan 2022 - Present | San Francisco, CA
-• Led development of microservices architecture serving 10M+ users
-• Reduced API latency by 40% through database optimization
-• Mentored team of 3 junior developers
+- Led development of microservices architecture serving 10M+ users
+- Reduced API latency by 40% through database optimization
+- Mentored team of 3 junior developers
 
 Software Engineer | StartupXYZ | Jun 2019 - Dec 2021 | New York, NY
-• Built real-time data pipeline processing 1M events/day
-• Implemented CI/CD pipelines reducing deployment time by 60%
+- Built real-time data pipeline processing 1M events/day
+- Implemented CI/CD pipelines reducing deployment time by 60%
 
 EDUCATION
 
@@ -276,28 +606,38 @@ Python, JavaScript, TypeScript, React, Node.js, PostgreSQL, AWS, Docker, Kuberne
 
 CERTIFICATIONS
 
-• AWS Solutions Architect
-• Google Cloud Professional
+AWS Solutions Architect
+Google Cloud Professional
 
 LANGUAGES
 
 English (Native), Spanish (Conversational)
 """
+        if not args.json:
+            print("Using sample resume (pass a file path to parse your own)")
+            print("=" * 60)
 
-        print("\nParsing sample resume...")
-        result = parser.parse(sample_resume)
+    # Initialize parser
+    parser = ResumeParser(max_retries=args.retries)
 
-        if result:
-            print(f"\nName: {result.contact.name}")
-            print(f"Email: {result.contact.email}")
-            print(f"Phone: {result.contact.phone}")
-            print(f"\nExperience entries: {len(result.experience)}")
-            for job in result.experience:
-                print(f"  - {job.title} at {job.company}")
-            print(f"\nEducation entries: {len(result.education)}")
-            print(f"Skills: {len(result.skills)}")
-            print(f"Certifications: {len(result.certifications)}")
+    if not parser.test_connection():
+        print("Error: Cannot connect to AI provider. Is it running?", file=sys.stderr)
+        sys.exit(1)
+
+    # Parse
+    if not args.json:
+        print("Parsing resume...")
+
+    result = parser.parse(resume_text)
+
+    if result:
+        if args.json:
+            print(result.model_dump_json(indent=2))
         else:
-            print("Parsing failed!")
+            print("\n" + "=" * 60)
+            print("PARSING SUCCESSFUL")
+            print("=" * 60)
+            print_parsed_resume(result, verbose=args.verbose)
     else:
-        print("Connection failed. Is llama-server running?")
+        print("Error: Parsing failed after all retry attempts", file=sys.stderr)
+        sys.exit(1)

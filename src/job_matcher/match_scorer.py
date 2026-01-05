@@ -388,87 +388,76 @@ About the Company:
 
 **EVALUATION INSTRUCTIONS:**
 
-**STEP 1: CHECK MUST-HAVES AND AVOID LISTS FIRST (CRITICAL)**
-Before anything else, check if the job violates any deal-breakers:
-- Review the MUST-HAVES list above - does this job satisfy ALL of them?
-- Review the AVOID list above - does this job have ANY of these red flags?
-- If the job violates a MUST-HAVE or contains an AVOID item, score BELOW 60 immediately.
+Complete each evaluation step and track your assessment. Your final score MUST reflect the cumulative result of all steps.
 
-**STEP 2: DETERMINE THE ACTUAL ROLE TYPE (CRITICAL)**
-Read the ENTIRE job description carefully to determine what this job actually is:
-- What domain/field is this role in? (e.g., data engineering, frontend, DevOps, mechanical, etc.)
-- What will the person actually DO day-to-day?
-- What technologies and skills are emphasized?
+**STEP 1: DEAL-BREAKER CHECK**
+Review MUST-HAVES and AVOID lists:
+- Does this job satisfy ALL MUST-HAVES? (Yes/No)
+- Does this job contain ANY AVOID items? (Yes/No)
+- If ANY deal-breaker is triggered → Cap score at 49 maximum
 
-**AMBIGUOUS TITLES WARNING:** Titles like "Staff Engineer", "Senior Engineer", or "Platform Engineer" are AMBIGUOUS.
-You MUST read the full description to determine if it matches the candidate's target domain.
-- If the description focuses on their target domain (e.g., data pipelines, ETL, data warehouses for a Data Engineer): proceed to Step 3
-- If the description is vague or focuses on a DIFFERENT domain (e.g., frontend, mobile, mechanical): score BELOW 60
+**STEP 2: DOMAIN MATCH CHECK**
+Read the ENTIRE job description to determine the actual role:
+- What is the primary domain? (e.g., data engineering, frontend, DevOps, etc.)
+- Does this match the candidate's target domain? (Yes/Partial/No)
+- If NO (wrong domain entirely) → Cap score at 59 maximum
+- If PARTIAL (adjacent/overlapping domain) → Cap score at 74 maximum
 
-**STEP 3: JOB RELEVANCE CHECK**
-Does this job match what the candidate is searching for?
-- Does the actual role (based on description, NOT just title) align with their Target Roles?
-- Does it match their Career Goals?
-- Are the required skills aligned with their domain expertise?
+**STEP 3: ROLE ALIGNMENT SCORING** (0-30 points)
+How well does the role match what the candidate wants?
+- 25-30: Exact target role match (title AND responsibilities align perfectly)
+- 18-24: Strong alignment (clearly in target domain, minor title/scope differences)
+- 10-17: Moderate alignment (right domain but different focus area)
+- 0-9: Weak alignment (tangentially related)
 
-**IMPORTANT:** If the job is NOT in the candidate's target domain, score below 60 regardless of other factors.
+**STEP 4: QUALIFICATIONS FIT SCORING** (0-40 points)
+How qualified is the candidate for this specific role?
+- 35-40: Exceeds requirements (more experience/skills than needed)
+- 28-34: Fully qualified (meets all key requirements)
+- 20-27: Mostly qualified (meets most requirements, 1-2 gaps)
+- 12-19: Partially qualified (meets some requirements, notable gaps)
+- 0-11: Under-qualified (significant skill/experience gaps)
 
-**STEP 4: QUALIFICATIONS ASSESSMENT**
-Analyze the candidate's resume against the job:
-- Do they have relevant experience for this specific role?
-- Do their skills match what the job requires?
-- Consider their preferred skills list when evaluating fit.
+**STEP 5: PREFERENCES SCORING** (0-30 points)
+How well does the job meet stated preferences?
+- Remote/location preference met? (0-10 points)
+- Salary in acceptable range? (0-10 points)
+- Other preferences (company size, tech stack, etc.)? (0-10 points)
 
-**STEP 5: PREFERENCES CHECK**
-Check the hard preferences:
-- Remote requirement met?
-- Salary in acceptable range?
-- Location acceptable?
+**FINAL SCORE CALCULATION:**
+1. Sum your points from Steps 3-5 (maximum 100)
+2. Apply any caps from Steps 1-2 if triggered
+3. The result is your match_score
 
-**SCORING SCALE (USE THE FULL RANGE):**
-- 95-100: Exceptional match - Exact target role + Exceeds qualifications + Meets ALL requirements + No concerns
-- 90-94: Excellent match - Target role + Strong qualifications + Meets all requirements + Minor nice-to-haves missing
-- 85-89: Very strong match - Target role + Good qualifications + Meets most requirements + Few small gaps
-- 80-84: Strong match - Target role + Solid qualifications + Some gaps but nothing major
-- 75-79: Good match - Target role + Adequate qualifications + Notable gaps to address
-- 70-74: Decent match - Target role + Meets minimum qualifications + Multiple gaps
-- 60-69: Marginal - Related field but NOT the exact target role type
-- 50-59: Wrong domain - Different engineering discipline or ambiguous role that doesn't clearly match
-- 0-49: Poor fit - Completely different field OR violates deal-breakers
+**SCORE INTERPRETATION (for reference):**
+- 90-100: Exceptional - Exact target role, exceeds qualifications, all preferences met
+- 80-89: Strong - Clear target role match, fully qualified, most preferences met
+- 70-79: Good - Target role with solid qualifications, some preference gaps
+- 60-69: Moderate - Right domain but role/qualification concerns
+- 50-59: Marginal - Adjacent domain or significant gaps
+- 0-49: Poor - Wrong domain or deal-breaker triggered
 
-**CRITICAL:** A job with an ambiguous title AND vague description that doesn't clearly match the target domain should score 50-59 MAX.
+**CRITICAL CALIBRATION INSTRUCTION:**
+You MUST use the full scoring range. If a job clearly matches the target role and the candidate is qualified, score it 80+. Do NOT default to middle scores out of caution. Differentiate between good matches (70s), strong matches (80s), and exceptional matches (90s).
 
 **REASONING REQUIREMENTS:**
-In your 2-3 sentence explanation, you MUST address:
-1. What is the ACTUAL role type based on the full job description?
-2. Does it match the candidate's target domain?
-3. Any MUST-HAVE/AVOID violations?
+In your 2-3 sentence explanation, state:
+1. The actual role type and whether it matches the target domain
+2. Key qualification matches or gaps
+3. Any deal-breakers or preference issues
 
 **CRITICAL OUTPUT REQUIREMENTS:**
 - You MUST respond with ONLY a JSON object
 - DO NOT include any explanations, thinking, or text before or after the JSON
 - DO NOT use markdown code blocks or formatting
-- DO NOT add comments or notes
 - The response must start with {{ and end with }}
 
 **REQUIRED JSON FORMAT:**
 {{
   "match_score": <integer from 0 to 100>,
-  "reasoning": "<brief 2-3 sentence explanation addressing actual role type, domain match, and any concerns>",
+  "reasoning": "<2-3 sentences: role type + domain match, qualification fit, any concerns>",
   "matched_requirements": {{}}
-}}
-
-Example - Strong match:
-{{"match_score": 92, "reasoning": "This Senior Data Engineer role clearly focuses on data pipelines, Snowflake, and dbt based on the description. Matches their target role exactly and meets all MUST-HAVES (remote, $180k, modern data stack). Their resume shows 6+ years with this exact tech stack.", "matched_requirements": {{}}}}
-
-Example - Ambiguous title but GOOD description:
-{{"match_score": 85, "reasoning": "Despite the generic 'Staff Engineer' title, the description clearly focuses on data infrastructure, ETL pipelines, and Snowflake - matching their target domain. Meets MUST-HAVES. Good qualifications match.", "matched_requirements": {{}}}}
-
-Example - Ambiguous title with WRONG domain:
-{{"match_score": 52, "reasoning": "The 'Staff Engineer' title is ambiguous and the description focuses on frontend development, React, and UI components - NOT data engineering. This is the wrong domain despite some overlapping general engineering skills.", "matched_requirements": {{}}}}
-
-Example - Deal-breaker violation:
-{{"match_score": 45, "reasoning": "While labeled as Data Engineer, this violates AVOID (staffing agency) and fails MUST-HAVES (on-site only). Deal-breaker violations override other factors.", "matched_requirements": {{}}}}"""
+}}"""
 
         return prompt
 
