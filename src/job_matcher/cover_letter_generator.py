@@ -13,6 +13,7 @@ from src.job_matcher.resume_parser import ParsedResume, ValidationRetryEngine
 from src.job_matcher.models.resume_rewrite import (
     CoverLetter, CoverLetterParagraph
 )
+from src.job_matcher.prompt_config import get_cover_letter_config, CoverLetterConfig
 
 logger = logging.getLogger(__name__)
 
@@ -27,44 +28,32 @@ class CoverLetterGenerator:
     3. Post-generation verification that no new facts were added
     """
 
-    SYSTEM_CONTEXT = """You are a professional cover letter writer. Your task is to write a compelling cover letter.
-
-CRITICAL ANTI-HALLUCINATION RULES:
-1. ONLY use facts explicitly stated in the resume provided
-2. DO NOT invent achievements, skills, experiences, or qualifications
-3. DO NOT assume anything not explicitly stated in the resume
-4. DO NOT add specific numbers, metrics, or details not in the resume
-5. If the resume lacks information for a point, skip that point entirely
-6. Every claim in the cover letter must be directly traceable to the resume
-
-You will be given:
-- The candidate's resume with all their actual experience
-- The job description they're applying for
-- Strengths analysis (if available)
-
-Write a professional cover letter that highlights the candidate's ACTUAL qualifications."""
-
     def __init__(
         self,
         provider: Optional[AIProvider] = None,
-        max_retries: int = 3,
-        temperature: float = 0.5,
+        config: Optional[CoverLetterConfig] = None,
     ):
         """
         Initialize CoverLetterGenerator.
 
         Args:
             provider: Optional AIProvider instance
-            max_retries: Maximum retry attempts on validation failure
-            temperature: LLM temperature (slightly higher for natural writing)
+            config: Optional CoverLetterConfig. If not provided, loads from profile config.
         """
         self.provider = provider or get_ai_provider()
+        self.config = config or get_cover_letter_config()
+
         self.validation_engine = ValidationRetryEngine(
             provider=self.provider,
-            max_retries=max_retries,
-            temperature=temperature,
-            max_tokens=4096,
+            max_retries=self.config.parameters.max_retries,
+            temperature=self.config.parameters.temperature,
+            max_tokens=self.config.parameters.max_tokens,
         )
+
+    @property
+    def system_context(self) -> str:
+        """Get the system context from config."""
+        return self.config.system_prompt
 
     def generate(
         self,
@@ -216,7 +205,7 @@ IMPORTANT: Use the structure and style of this template, but replace ALL content
         # Limit facts to show in prompt
         facts_to_show = resume_facts[:25]
 
-        return f"""{self.SYSTEM_CONTEXT}
+        return f"""{self.system_context}
 
 CANDIDATE'S RESUME:
 {resume_text}

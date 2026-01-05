@@ -6,10 +6,12 @@ Extracts structured data from plain text resumes with guaranteed schema complian
 """
 
 import logging
+import time
 from typing import Optional, List, Type, TypeVar, Dict, Any
 from pydantic import BaseModel, Field, ValidationError
 
 from src.ai import get_ai_provider, AIProvider
+from src.job_matcher.llm_tracer import get_tracer
 
 logger = logging.getLogger(__name__)
 
@@ -127,12 +129,16 @@ class ValidationRetryEngine:
         self.max_retries = max_retries
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self.tracer = get_tracer()
 
     def extract(
         self,
         prompt: str,
         response_model: Type[T],
         context: Optional[str] = None,
+        operation: Optional[str] = None,
+        job_title: Optional[str] = None,
+        job_company: Optional[str] = None,
     ) -> Optional[T]:
         """
         Extract structured data from LLM with validation and retry.
@@ -141,6 +147,9 @@ class ValidationRetryEngine:
             prompt: The extraction prompt
             response_model: Pydantic model class for validation
             context: Optional context to include in retry prompts
+            operation: Operation name for tracing (e.g., "rewrite_summary")
+            job_title: Job title for tracing context
+            job_company: Company name for tracing context
 
         Returns:
             Validated Pydantic model instance or None if all retries fail
@@ -148,6 +157,29 @@ class ValidationRetryEngine:
         json_schema = response_model.model_json_schema()
         last_error: Optional[str] = None
         last_response: Optional[Dict[str, Any]] = None
+
+        # Extract system prompt from the prompt if present (first section before newlines)
+        system_prompt = ""
+        user_prompt = prompt
+        if "\n\n" in prompt:
+            parts = prompt.split("\n\n", 1)
+            if len(parts) == 2:
+                system_prompt = parts[0]
+                user_prompt = parts[1]
+
+        # Start trace
+        trace_id = self.tracer.start_trace(
+            operation=operation or response_model.__name__,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            model=getattr(self.provider, 'model', 'unknown'),
+            temperature=self.temperature,
+            job_title=job_title,
+            job_company=job_company,
+            metadata={"response_model": response_model.__name__},
+        )
+
+        start_time = time.time()
 
         for attempt in range(self.max_retries + 1):
             # Build prompt with error feedback for retries
@@ -160,6 +192,7 @@ class ValidationRetryEngine:
                     attempt=attempt,
                 )
                 logger.info(f"Retry {attempt}/{self.max_retries} after validation error")
+                self.tracer.record_retry(trace_id, last_error)
 
             # Generate JSON response
             result = self.provider.generate_json(
@@ -179,6 +212,17 @@ class ValidationRetryEngine:
             # Validate with Pydantic
             try:
                 validated = response_model.model_validate(result)
+                duration_ms = (time.time() - start_time) * 1000
+
+                # Complete trace successfully
+                self.tracer.complete_trace(
+                    trace_id=trace_id,
+                    response=str(result)[:2000],  # Truncate for storage
+                    parsed_response=result,
+                    duration_ms=duration_ms,
+                    validation_passed=True,
+                )
+
                 if attempt > 0:
                     logger.info(f"Validation succeeded on retry {attempt}")
                 return validated
@@ -186,6 +230,17 @@ class ValidationRetryEngine:
                 last_error = self._format_validation_error(e)
                 logger.debug(f"Attempt {attempt + 1} validation failed: {last_error}")
                 continue
+
+        # All attempts failed
+        duration_ms = (time.time() - start_time) * 1000
+        self.tracer.complete_trace(
+            trace_id=trace_id,
+            response=str(last_response)[:2000] if last_response else None,
+            parsed_response=last_response,
+            duration_ms=duration_ms,
+            validation_passed=False,
+            validation_errors=[last_error] if last_error else [],
+        )
 
         logger.error(f"All {self.max_retries + 1} attempts failed. Last error: {last_error}")
         return None

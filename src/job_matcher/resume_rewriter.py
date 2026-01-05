@@ -16,6 +16,7 @@ from src.job_matcher.models.resume_rewrite import (
     RewrittenResume, RewrittenSummary, RewrittenExperienceEntry,
     RewrittenSkills
 )
+from src.job_matcher.prompt_config import get_resume_rewriter_config, ResumeRewriterConfig
 
 logger = logging.getLogger(__name__)
 
@@ -31,40 +32,33 @@ class ResumeRewriter:
     4. Track all changes for verification
     """
 
-    # System context emphasizing fact preservation
-    SYSTEM_CONTEXT = """You are a professional resume writer. Your task is to rewrite resume sections to better match a job description.
-
-CRITICAL RULES - YOU MUST FOLLOW THESE EXACTLY:
-1. NEVER FABRICATE: Only use information from the original resume. Do not invent skills, achievements, or experiences.
-2. PRESERVE ALL FACTS: Keep all dates, numbers, company names, job titles, and metrics EXACTLY as they appear.
-3. REPHRASE ONLY: You may only change wording, not meaning. Incorporate keywords naturally.
-4. NO ADDITIONS: Do not add accomplishments, skills, or experiences not in the original.
-5. NO EXAGGERATION: Do not inflate numbers, scope, or impact beyond what's stated.
-
-If you cannot improve a section while following these rules, return it unchanged."""
-
     def __init__(
         self,
         provider: Optional[AIProvider] = None,
-        max_retries: int = 3,
-        temperature: float = 0.3,
+        config: Optional[ResumeRewriterConfig] = None,
     ):
         """
         Initialize ResumeRewriter.
 
         Args:
             provider: Optional AIProvider instance. If not provided, uses get_ai_provider().
-            max_retries: Maximum retry attempts on validation failure (default: 3)
-            temperature: LLM temperature (default: 0.3 for consistency)
+            config: Optional ResumeRewriterConfig. If not provided, loads from profile config.
         """
         self.provider = provider or get_ai_provider()
+        self.config = config or get_resume_rewriter_config()
+
         self.validation_engine = ValidationRetryEngine(
             provider=self.provider,
-            max_retries=max_retries,
-            temperature=temperature,
-            max_tokens=4096,
+            max_retries=self.config.parameters.max_retries,
+            temperature=self.config.parameters.temperature,
+            max_tokens=self.config.parameters.max_tokens,
         )
-        self.temperature = temperature
+        self.temperature = self.config.parameters.temperature
+
+    @property
+    def system_context(self) -> str:
+        """Get the system context from config."""
+        return self.config.system_prompt
 
     def rewrite_for_job(
         self,
@@ -86,6 +80,10 @@ If you cannot improve a section while following these rules, return it unchanged
         job_title = job.get("title", "Unknown Position")
         company = job.get("company", "Unknown Company")
         description = job.get("description", "")
+
+        # Store for tracing context
+        self._current_job_title = job_title
+        self._current_company = company
 
         # Extract keywords from job
         keywords = self._extract_job_keywords(job, gap_analysis)
@@ -195,7 +193,7 @@ If you cannot improve a section while following these rules, return it unchanged
                 changes_made=["No original summary to rewrite"]
             )
 
-        prompt = f"""{self.SYSTEM_CONTEXT}
+        prompt = f"""{self.system_context}
 
 TASK: Rewrite this professional summary to better match the target job.
 
@@ -223,6 +221,9 @@ Return a JSON object with these exact fields:
         result = self.validation_engine.extract(
             prompt=prompt,
             response_model=RewrittenSummary,
+            operation="rewrite_summary",
+            job_title=getattr(self, '_current_job_title', None),
+            job_company=getattr(self, '_current_company', None),
         )
 
         return result
@@ -281,7 +282,7 @@ Return a JSON object with these exact fields:
         bullets_text = '\n'.join(f'- {b}' for b in entry.bullets)
         bullet_count = len(entry.bullets)
 
-        prompt = f"""{self.SYSTEM_CONTEXT}
+        prompt = f"""{self.system_context}
 
 TASK: Rewrite the bullet points for this job experience to emphasize relevance to the target position.
 
@@ -316,6 +317,9 @@ Return a JSON object with these exact fields:
         result = self.validation_engine.extract(
             prompt=prompt,
             response_model=RewrittenExperienceEntry,
+            operation="rewrite_experience",
+            job_title=getattr(self, '_current_job_title', None),
+            job_company=getattr(self, '_current_company', None),
         )
 
         return result
@@ -335,7 +339,7 @@ Return a JSON object with these exact fields:
                 organization_strategy="No skills to reorder"
             )
 
-        prompt = f"""{self.SYSTEM_CONTEXT}
+        prompt = f"""{self.system_context}
 
 TASK: Reorganize this skills section to emphasize the most relevant skills for the target job.
 
@@ -361,6 +365,9 @@ Return a JSON object with these exact fields:
         result = self.validation_engine.extract(
             prompt=prompt,
             response_model=RewrittenSkills,
+            operation="rewrite_skills",
+            job_title=getattr(self, '_current_job_title', None),
+            job_company=getattr(self, '_current_company', None),
         )
 
         if result:

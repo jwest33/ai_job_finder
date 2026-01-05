@@ -14,6 +14,7 @@ from .scraper import router as scraper_router
 from .system import router as system_router
 from .ai import router as ai_router
 from .documents import router as documents_router
+from .settings import router as settings_router
 
 # Create main API router
 api_router = APIRouter(prefix="/api/v1")
@@ -27,3 +28,4 @@ api_router.include_router(scraper_router, prefix="/scraper", tags=["scraper"])
 api_router.include_router(system_router, prefix="/system", tags=["system"])
 api_router.include_router(ai_router, prefix="/ai", tags=["ai"])
 api_router.include_router(documents_router, prefix="/documents", tags=["documents"])
+api_router.include_router(settings_router, tags=["settings"])

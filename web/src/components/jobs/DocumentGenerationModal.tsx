@@ -15,6 +15,8 @@ import {
   RefreshCw,
   Upload,
   Clock,
+  ToggleLeft,
+  ToggleRight,
 } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { documentsApi, type TailoredDocument } from '../../api/documents';
@@ -50,6 +52,11 @@ export function DocumentGenerationModal({
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showChanges, setShowChanges] = useState(false);
+
+  // Section selection state: tracks which version (original vs rewritten) to use per section
+  // Keys: 'summary', 'experience-0', 'experience-1', ..., 'skills'
+  // Values: 'original' | 'rewritten'
+  const [sectionSelections, setSectionSelections] = useState<Record<string, 'original' | 'rewritten'>>({});
 
   // Saved document state
   const [isLoadingSaved, setIsLoadingSaved] = useState(false);
@@ -101,6 +108,102 @@ export function DocumentGenerationModal({
     }
   };
 
+  // Initialize section selections when resume result is available (default all to 'rewritten')
+  useEffect(() => {
+    if (resumeResult?.rewritten_resume) {
+      const initial: Record<string, 'original' | 'rewritten'> = {
+        summary: 'rewritten',
+        skills: 'rewritten',
+      };
+      resumeResult.rewritten_resume.experience.forEach((_, idx) => {
+        initial[`experience-${idx}`] = 'rewritten';
+      });
+      setSectionSelections(initial);
+    }
+  }, [resumeResult]);
+
+  // Toggle a section between original and rewritten
+  const toggleSection = (sectionKey: string) => {
+    setSectionSelections(prev => ({
+      ...prev,
+      [sectionKey]: prev[sectionKey] === 'rewritten' ? 'original' : 'rewritten',
+    }));
+  };
+
+  // Build plain text based on current section selections
+  const buildCustomPlainText = (): string => {
+    if (!resumeResult?.rewritten_resume) return '';
+
+    const resume = resumeResult.rewritten_resume;
+    const lines: string[] = [];
+
+    // Contact info (always from rewritten - immutable)
+    lines.push(resume.contact.name);
+    lines.push(resume.contact.email);
+    if (resume.contact.phone) lines.push(resume.contact.phone);
+    if (resume.contact.location) lines.push(resume.contact.location);
+    if (resume.contact.linkedin) lines.push(resume.contact.linkedin);
+    if (resume.contact.github) lines.push(resume.contact.github);
+    lines.push('');
+
+    // Summary
+    if (resume.summary) {
+      lines.push('SUMMARY');
+      lines.push('-'.repeat(40));
+      const summaryText = sectionSelections.summary === 'original'
+        ? resume.summary.original
+        : resume.summary.rewritten;
+      lines.push(summaryText);
+      lines.push('');
+    }
+
+    // Experience
+    lines.push('EXPERIENCE');
+    lines.push('-'.repeat(40));
+    resume.experience.forEach((exp, idx) => {
+      lines.push(`${exp.title} | ${exp.company}`);
+      lines.push(`${exp.start_date} - ${exp.end_date}${exp.location ? ` | ${exp.location}` : ''}`);
+      const bullets = sectionSelections[`experience-${idx}`] === 'original'
+        ? exp.original_bullets
+        : exp.rewritten_bullets;
+      bullets.forEach(bullet => {
+        lines.push(`• ${bullet}`);
+      });
+      lines.push('');
+    });
+
+    // Skills
+    if (resume.skills) {
+      lines.push('SKILLS');
+      lines.push('-'.repeat(40));
+      const skills = sectionSelections.skills === 'original'
+        ? resume.skills.original_skills
+        : resume.skills.rewritten_skills;
+      lines.push(skills.join(', '));
+      lines.push('');
+    }
+
+    // Education
+    if (resume.education.length > 0) {
+      lines.push('EDUCATION');
+      lines.push('-'.repeat(40));
+      resume.education.forEach(edu => {
+        lines.push(`${edu.degree} - ${edu.school}${edu.year ? ` (${edu.year})` : ''}`);
+      });
+      lines.push('');
+    }
+
+    // Certifications
+    if (resume.certifications.length > 0) {
+      lines.push('CERTIFICATIONS');
+      lines.push('-'.repeat(40));
+      resume.certifications.forEach(cert => lines.push(`• ${cert}`));
+      lines.push('');
+    }
+
+    return lines.join('\n');
+  };
+
   const handleGenerate = async () => {
     setIsGenerating(true);
     setError(null);
@@ -137,9 +240,16 @@ export function DocumentGenerationModal({
   };
 
   const handleCopy = async () => {
-    const text = documentType === 'resume'
-      ? resumeResult?.plain_text
-      : coverLetterResult?.plain_text;
+    let text: string | undefined;
+
+    if (documentType === 'resume') {
+      // Use custom builder if we have structured data (allows per-section selection)
+      text = resumeResult?.rewritten_resume
+        ? buildCustomPlainText()
+        : resumeResult?.plain_text;
+    } else {
+      text = coverLetterResult?.plain_text;
+    }
 
     if (text) {
       await navigator.clipboard.writeText(text);
@@ -163,9 +273,16 @@ export function DocumentGenerationModal({
   };
 
   const handleDownload = () => {
-    const text = documentType === 'resume'
-      ? resumeResult?.plain_text
-      : coverLetterResult?.plain_text;
+    let text: string | undefined;
+
+    if (documentType === 'resume') {
+      // Use custom builder if we have structured data (allows per-section selection)
+      text = resumeResult?.rewritten_resume
+        ? buildCustomPlainText()
+        : resumeResult?.plain_text;
+    } else {
+      text = coverLetterResult?.plain_text;
+    }
 
     if (!text) return;
 
@@ -192,6 +309,7 @@ export function DocumentGenerationModal({
     setSavedDocument(null);
     setShowTemplateUpload(false);
     setTemplateContent('');
+    setSectionSelections({});
     onClose();
   };
 
@@ -520,112 +638,233 @@ export function DocumentGenerationModal({
             {resumeResult?.rewritten_resume && showChanges && (
               <div className="space-y-4 max-h-[60vh] overflow-y-auto">
                 {/* Summary Changes */}
-                {resumeResult.rewritten_resume.summary && (
-                  <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                    <div className="bg-gray-100 dark:bg-gray-800 px-3 py-2 border-b border-gray-200 dark:border-gray-700">
-                      <span className="font-medium text-gray-900 dark:text-white text-sm">Summary</span>
+                {resumeResult.rewritten_resume.summary && (() => {
+                  const summaryChanged = resumeResult.rewritten_resume.summary.original !== resumeResult.rewritten_resume.summary.rewritten;
+                  const useOriginal = sectionSelections.summary === 'original';
+                  return (
+                    <div className={`border rounded-lg overflow-hidden ${useOriginal ? 'border-gray-300 dark:border-gray-600' : 'border-green-300 dark:border-green-700'}`}>
+                      <div className="bg-gray-100 dark:bg-gray-800 px-3 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                        <span className="font-medium text-gray-900 dark:text-white text-sm">Summary</span>
+                        <div className="flex items-center gap-2">
+                          {!summaryChanged && (
+                            <span className="text-xs text-gray-500 dark:text-gray-400 italic">No changes</span>
+                          )}
+                          {summaryChanged && (
+                            <button
+                              onClick={() => toggleSection('summary')}
+                              className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors ${
+                                useOriginal
+                                  ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                  : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                              }`}
+                              title={useOriginal ? 'Using original - click to use rewritten' : 'Using rewritten - click to use original'}
+                            >
+                              {useOriginal ? <ToggleLeft className="w-4 h-4" /> : <ToggleRight className="w-4 h-4" />}
+                              {useOriginal ? 'Original' : 'Rewritten'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {summaryChanged ? (
+                        <div className="grid grid-cols-2 divide-x divide-gray-200 dark:divide-gray-700">
+                          <div className={`p-3 ${!useOriginal ? 'bg-gray-50 dark:bg-gray-800/50 opacity-60' : 'bg-blue-50/50 dark:bg-blue-900/10 ring-2 ring-inset ring-blue-300 dark:ring-blue-700'}`}>
+                            <div className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Original</div>
+                            <p className="text-sm text-gray-700 dark:text-gray-300">
+                              {resumeResult.rewritten_resume.summary.original}
+                            </p>
+                          </div>
+                          <div className={`p-3 ${useOriginal ? 'bg-gray-50 dark:bg-gray-800/50 opacity-60' : 'bg-green-50/50 dark:bg-green-900/10 ring-2 ring-inset ring-green-300 dark:ring-green-700'}`}>
+                            <div className="text-xs font-medium text-green-600 dark:text-green-400 mb-1">Rewritten</div>
+                            <p className="text-sm text-gray-700 dark:text-gray-300">
+                              {resumeResult.rewritten_resume.summary.rewritten}
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-3">
+                          <p className="text-sm text-gray-600 dark:text-gray-400">
+                            {resumeResult.rewritten_resume.summary.original}
+                          </p>
+                        </div>
+                      )}
+                      {resumeResult.rewritten_resume.summary.changes_made.length > 0 && (
+                        <div className="px-3 py-2 bg-blue-50 dark:bg-blue-900/20 border-t border-gray-200 dark:border-gray-700">
+                          <span className="text-xs text-blue-700 dark:text-blue-300">
+                            Changes: {resumeResult.rewritten_resume.summary.changes_made.join(' • ')}
+                          </span>
+                        </div>
+                      )}
                     </div>
-                    <div className="grid grid-cols-2 divide-x divide-gray-200 dark:divide-gray-700">
-                      <div className="p-3">
-                        <div className="text-xs font-medium text-red-600 dark:text-red-400 mb-1">Original</div>
-                        <p className="text-sm text-gray-700 dark:text-gray-300">
-                          {resumeResult.rewritten_resume.summary.original}
-                        </p>
-                      </div>
-                      <div className="p-3 bg-green-50/50 dark:bg-green-900/10">
-                        <div className="text-xs font-medium text-green-600 dark:text-green-400 mb-1">Rewritten</div>
-                        <p className="text-sm text-gray-700 dark:text-gray-300">
-                          {resumeResult.rewritten_resume.summary.rewritten}
-                        </p>
-                      </div>
-                    </div>
-                    {resumeResult.rewritten_resume.summary.changes_made.length > 0 && (
-                      <div className="px-3 py-2 bg-blue-50 dark:bg-blue-900/20 border-t border-gray-200 dark:border-gray-700">
-                        <span className="text-xs text-blue-700 dark:text-blue-300">
-                          Changes: {resumeResult.rewritten_resume.summary.changes_made.join(' • ')}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* Experience Changes */}
-                {resumeResult.rewritten_resume.experience.map((exp, expIdx) => (
-                  <div key={expIdx} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                    <div className="bg-gray-100 dark:bg-gray-800 px-3 py-2 border-b border-gray-200 dark:border-gray-700">
-                      <span className="font-medium text-gray-900 dark:text-white text-sm">
-                        {exp.title} at {exp.company}
-                      </span>
-                      <span className="text-gray-500 dark:text-gray-400 text-xs ml-2">
-                        {exp.start_date} - {exp.end_date}
-                      </span>
-                    </div>
-                    <div className="divide-y divide-gray-200 dark:divide-gray-700">
-                      {exp.original_bullets.map((originalBullet, bulletIdx) => (
-                        <div key={bulletIdx} className="grid grid-cols-2 divide-x divide-gray-200 dark:divide-gray-700">
-                          <div className="p-2">
-                            <span className="text-xs text-red-500 dark:text-red-400 mr-1">−</span>
-                            <span className="text-sm text-gray-700 dark:text-gray-300">{originalBullet}</span>
-                          </div>
-                          <div className="p-2 bg-green-50/50 dark:bg-green-900/10">
-                            <span className="text-xs text-green-500 dark:text-green-400 mr-1">+</span>
-                            <span className="text-sm text-gray-700 dark:text-gray-300">
-                              {exp.rewritten_bullets[bulletIdx] || originalBullet}
-                            </span>
-                          </div>
+                {resumeResult.rewritten_resume.experience.map((exp, expIdx) => {
+                  const hasAnyChanges = exp.original_bullets.some(
+                    (original, idx) => original !== exp.rewritten_bullets[idx]
+                  );
+                  const sectionKey = `experience-${expIdx}`;
+                  const useOriginal = sectionSelections[sectionKey] === 'original';
+                  return (
+                    <div key={expIdx} className={`border rounded-lg overflow-hidden ${useOriginal ? 'border-gray-300 dark:border-gray-600' : 'border-green-300 dark:border-green-700'}`}>
+                      <div className="bg-gray-100 dark:bg-gray-800 px-3 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                        <div>
+                          <span className="font-medium text-gray-900 dark:text-white text-sm">
+                            {exp.title} at {exp.company}
+                          </span>
+                          <span className="text-gray-500 dark:text-gray-400 text-xs ml-2">
+                            {exp.start_date} - {exp.end_date}
+                          </span>
                         </div>
-                      ))}
-                    </div>
-                    {exp.bullet_changes.length > 0 && (
-                      <div className="px-3 py-2 bg-blue-50 dark:bg-blue-900/20 border-t border-gray-200 dark:border-gray-700">
-                        <span className="text-xs text-blue-700 dark:text-blue-300">
-                          {exp.bullet_changes.join(' • ')}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          {!hasAnyChanges && (
+                            <span className="text-xs text-gray-500 dark:text-gray-400 italic">No changes</span>
+                          )}
+                          {hasAnyChanges && (
+                            <button
+                              onClick={() => toggleSection(sectionKey)}
+                              className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors ${
+                                useOriginal
+                                  ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                  : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                              }`}
+                              title={useOriginal ? 'Using original - click to use rewritten' : 'Using rewritten - click to use original'}
+                            >
+                              {useOriginal ? <ToggleLeft className="w-4 h-4" /> : <ToggleRight className="w-4 h-4" />}
+                              {useOriginal ? 'Original' : 'Rewritten'}
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    )}
-                  </div>
-                ))}
+                      <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                        {exp.original_bullets.map((originalBullet, bulletIdx) => {
+                          const rewrittenBullet = exp.rewritten_bullets[bulletIdx] || originalBullet;
+                          const isChanged = originalBullet !== rewrittenBullet;
+
+                          if (!isChanged) {
+                            // Unchanged bullet - show single column without diff styling
+                            return (
+                              <div key={bulletIdx} className="p-2">
+                                <span className="text-xs text-gray-400 dark:text-gray-500 mr-1">•</span>
+                                <span className="text-sm text-gray-600 dark:text-gray-400">{originalBullet}</span>
+                              </div>
+                            );
+                          }
+
+                          // Changed bullet - show side-by-side diff with selection highlighting
+                          return (
+                            <div key={bulletIdx} className="grid grid-cols-2 divide-x divide-gray-200 dark:divide-gray-700">
+                              <div className={`p-2 ${!useOriginal ? 'bg-gray-50 dark:bg-gray-800/50 opacity-60' : 'bg-blue-50/50 dark:bg-blue-900/10'}`}>
+                                <span className="text-xs text-gray-500 dark:text-gray-400 mr-1">−</span>
+                                <span className="text-sm text-gray-700 dark:text-gray-300">{originalBullet}</span>
+                              </div>
+                              <div className={`p-2 ${useOriginal ? 'bg-gray-50 dark:bg-gray-800/50 opacity-60' : 'bg-green-50/50 dark:bg-green-900/10'}`}>
+                                <span className="text-xs text-green-500 dark:text-green-400 mr-1">+</span>
+                                <span className="text-sm text-gray-700 dark:text-gray-300">{rewrittenBullet}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {exp.bullet_changes.length > 0 && (
+                        <div className="px-3 py-2 bg-blue-50 dark:bg-blue-900/20 border-t border-gray-200 dark:border-gray-700">
+                          <span className="text-xs text-blue-700 dark:text-blue-300">
+                            {exp.bullet_changes.join(' • ')}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
 
                 {/* Skills Changes */}
-                {resumeResult.rewritten_resume.skills && (
-                  <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                    <div className="bg-gray-100 dark:bg-gray-800 px-3 py-2 border-b border-gray-200 dark:border-gray-700">
-                      <span className="font-medium text-gray-900 dark:text-white text-sm">Skills</span>
-                    </div>
-                    <div className="grid grid-cols-2 divide-x divide-gray-200 dark:divide-gray-700">
-                      <div className="p-3">
-                        <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Original Order</div>
-                        <div className="flex flex-wrap gap-1">
-                          {resumeResult.rewritten_resume.skills.original_skills.map((skill, i) => (
-                            <span key={i} className="px-2 py-0.5 text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded">
-                              {skill}
-                            </span>
-                          ))}
+                {resumeResult.rewritten_resume.skills && (() => {
+                  const skills = resumeResult.rewritten_resume.skills;
+                  const skillsReordered = skills.original_skills.some(
+                    (skill, i) => skill !== skills.rewritten_skills[i]
+                  );
+                  const useOriginal = sectionSelections.skills === 'original';
+                  return (
+                    <div className={`border rounded-lg overflow-hidden ${useOriginal ? 'border-gray-300 dark:border-gray-600' : 'border-green-300 dark:border-green-700'}`}>
+                      <div className="bg-gray-100 dark:bg-gray-800 px-3 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                        <span className="font-medium text-gray-900 dark:text-white text-sm">Skills</span>
+                        <div className="flex items-center gap-2">
+                          {!skillsReordered && (
+                            <span className="text-xs text-gray-500 dark:text-gray-400 italic">No changes</span>
+                          )}
+                          {skillsReordered && (
+                            <button
+                              onClick={() => toggleSection('skills')}
+                              className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors ${
+                                useOriginal
+                                  ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                  : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                              }`}
+                              title={useOriginal ? 'Using original - click to use rewritten' : 'Using rewritten - click to use original'}
+                            >
+                              {useOriginal ? <ToggleLeft className="w-4 h-4" /> : <ToggleRight className="w-4 h-4" />}
+                              {useOriginal ? 'Original' : 'Rewritten'}
+                            </button>
+                          )}
                         </div>
                       </div>
-                      <div className="p-3 bg-green-50/50 dark:bg-green-900/10">
-                        <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Reordered (Relevant First)</div>
-                        <div className="flex flex-wrap gap-1">
-                          {resumeResult.rewritten_resume.skills.rewritten_skills.map((skill, i) => {
-                            const isHighlighted = resumeResult.rewritten_resume!.skills.skills_highlighted.includes(skill);
-                            return (
-                              <span
-                                key={i}
-                                className={`px-2 py-0.5 text-xs rounded ${
-                                  isHighlighted
-                                    ? 'bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200 font-medium'
-                                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                                }`}
-                              >
-                                {skill}
-                              </span>
-                            );
-                          })}
+                      {skillsReordered ? (
+                        <div className="grid grid-cols-2 divide-x divide-gray-200 dark:divide-gray-700">
+                          <div className={`p-3 ${!useOriginal ? 'bg-gray-50 dark:bg-gray-800/50 opacity-60' : 'bg-blue-50/50 dark:bg-blue-900/10'}`}>
+                            <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Original Order</div>
+                            <div className="flex flex-wrap gap-1">
+                              {skills.original_skills.map((skill, i) => (
+                                <span key={i} className="px-2 py-0.5 text-xs bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded">
+                                  {skill}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                          <div className={`p-3 ${useOriginal ? 'bg-gray-50 dark:bg-gray-800/50 opacity-60' : 'bg-green-50/50 dark:bg-green-900/10'}`}>
+                            <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Reordered (Relevant First)</div>
+                            <div className="flex flex-wrap gap-1">
+                              {skills.rewritten_skills.map((skill, i) => {
+                                const isHighlighted = skills.skills_highlighted.includes(skill);
+                                return (
+                                  <span
+                                    key={i}
+                                    className={`px-2 py-0.5 text-xs rounded ${
+                                      isHighlighted
+                                        ? 'bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200 font-medium'
+                                        : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                    }`}
+                                  >
+                                    {skill}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </div>
                         </div>
-                      </div>
+                      ) : (
+                        <div className="p-3">
+                          <div className="flex flex-wrap gap-1">
+                            {skills.original_skills.map((skill, i) => {
+                              const isHighlighted = skills.skills_highlighted.includes(skill);
+                              return (
+                                <span
+                                  key={i}
+                                  className={`px-2 py-0.5 text-xs rounded ${
+                                    isHighlighted
+                                      ? 'bg-green-200 dark:bg-green-800 text-green-800 dark:text-green-200 font-medium'
+                                      : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                  }`}
+                                >
+                                  {skill}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
             )}
 

@@ -61,12 +61,12 @@ def _save_tailored_document(
     try:
         db.execute("""
             INSERT INTO tailored_documents (job_url, document_type, plain_text, structured_data, verification_data, updated_at)
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, NOW())
             ON CONFLICT (job_url, document_type) DO UPDATE SET
                 plain_text = EXCLUDED.plain_text,
                 structured_data = EXCLUDED.structured_data,
                 verification_data = EXCLUDED.verification_data,
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = NOW()
         """, (
             job_url,
             document_type,
@@ -482,10 +482,10 @@ async def save_cover_letter(job_url: str, request: SaveCoverLetterRequest):
     try:
         db.execute("""
             INSERT INTO job_applications (job_url, cover_letter, updated_at)
-            VALUES (?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, NOW())
             ON CONFLICT (job_url) DO UPDATE SET
                 cover_letter = EXCLUDED.cover_letter,
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = NOW()
         """, (decoded_url, request.content))
 
         return {"success": True, "message": "Cover letter saved"}
