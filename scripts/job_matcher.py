@@ -78,6 +78,7 @@ class JobMatcherPipeline:
         self.tracker = JobTracker()
         self.client = LlamaClient()
         self.analyzer = ResumeAnalyzer()
+        self.analyzer.load_all()  # Load resume and requirements
         self.scorer = MatchScorer(self.client, self.analyzer, self.checkpoint_manager, self.failure_tracker)
         self.gap_analyzer = GapAnalyzer(self.client, self.analyzer, self.checkpoint_manager, self.failure_tracker)
         self.optimizer = ResumeOptimizer(self.client, self.analyzer, self.checkpoint_manager, self.failure_tracker)

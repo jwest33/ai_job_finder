@@ -410,6 +410,16 @@ def _run_full_match_pipeline(task_id: str, profile_name: str, source: Optional[s
                     if field in job and job[field] is not None:
                         if hasattr(job[field], 'isoformat'):
                             job[field] = job[field].isoformat()
+            # Clear existing match_score so jobs are treated as fresh for re-scoring
+            # This is critical for re-matching - we want to recalculate ALL scores
+            for job in jobs:
+                job['match_score'] = None
+                job['match_explanation'] = None
+                job['gap_analysis'] = None
+                job['resume_suggestions'] = None
+        # Mark that we're in re-match mode so filters can be skipped appropriately
+        pipeline._sql_filters_applied = True
+        log(f"[API] Cleared existing scores from {len(jobs)} jobs for re-matching")
     else:
         log(f"[API] Loading unprocessed jobs from database (source: {source or 'indeed'})...")
         jobs = pipeline.load_jobs_from_db(source or "indeed")
@@ -433,8 +443,49 @@ def _run_full_match_pipeline(task_id: str, profile_name: str, source: Optional[s
             "message": message
         })
 
-    matched_jobs = pipeline.run_scoring_pass(jobs, min_score, api_progress_callback=api_progress_callback)
-    log(f"[API] Scoring complete: {len(matched_jobs)} matched jobs")
+    # For re-match mode, we need to save ALL scored jobs to DB, not just matched ones
+    if re_match_all:
+        # Score all jobs directly using the scorer
+        log("[API] Re-match mode: scoring all jobs and saving all results to database...")
+
+        def scoring_progress(current, total, job):
+            title = job.get("title", "Unknown")[:50]
+            api_progress_callback(current, total_jobs, f"Scoring job {current}/{total_jobs}: {title}")
+
+        # Score all jobs (skip pre-filters since we're re-matching everything)
+        scored_jobs = pipeline.scorer.score_jobs_batch_queued(
+            jobs,
+            scoring_progress,
+            apply_pre_filters=False  # Skip filters for re-match
+        )
+        log(f"[API] Scored {len(scored_jobs)} jobs")
+
+        # Save ALL scored jobs to database immediately (this is the key fix!)
+        log("[API] Saving ALL scored jobs to database...")
+        all_jobs_to_save = []
+        for job in scored_jobs:
+            job_url = job.get("job_url")
+            match_score = job.get("match_score")
+            if job_url and match_score is not None:
+                all_jobs_to_save.append({
+                    "job_url": job_url,
+                    "match_score": match_score,
+                    "match_explanation": job.get("reasoning", job.get("match_explanation", "")),
+                    "is_relevant": match_score >= min_score,
+                    "gap_analysis": None,  # Will be updated later for matched jobs
+                    "resume_suggestions": None,
+                })
+
+        if all_jobs_to_save:
+            save_result = pipeline.storage.update_match_results_batch(all_jobs_to_save)
+            log(f"[API] Saved {save_result.get('updated', 0)} job scores to database")
+
+        # Filter to matched jobs for analysis passes
+        matched_jobs = [job for job in scored_jobs if job.get("match_score", 0) >= min_score]
+        log(f"[API] {len(matched_jobs)} jobs meet threshold (>= {min_score})")
+    else:
+        matched_jobs = pipeline.run_scoring_pass(jobs, min_score, api_progress_callback=api_progress_callback)
+        log(f"[API] Scoring complete: {len(matched_jobs)} matched jobs")
 
     # Run gap analysis pass (Pass 2)
     if matched_jobs:
@@ -455,8 +506,8 @@ def _run_full_match_pipeline(task_id: str, profile_name: str, source: Optional[s
         optimized_jobs = pipeline.run_optimization_pass(analyzed_jobs, api_progress_callback=optimization_progress_callback)
         log(f"[API] Resume optimization complete: {len(optimized_jobs)} jobs optimized")
 
-        # Save results to database
-        log("[API] Saving results to database...")
+        # Save results to database (this will update gap_analysis and resume_suggestions for matched jobs)
+        log("[API] Saving analysis results to database...")
         update_task(task_id, progress={"current": total_jobs, "total": total_jobs, "message": "Saving results..."})
         pipeline.save_matched_jobs(optimized_jobs)
         log(f"[API] Saved {len(optimized_jobs)} matched jobs with analysis")

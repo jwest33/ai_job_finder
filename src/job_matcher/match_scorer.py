@@ -707,10 +707,18 @@ In your 2-3 sentence explanation, state:
         phase_start = time.time()
 
         deterministic_scores_map = {}
+
+        # DEBUG: Log what requirements the comparison engine has
+        print(f"[DEBUG:COMPARISON_ENGINE] requirements={self.comparison_engine.requirements}")
+        print(f"[DEBUG:COMPARISON_ENGINE] preferences={self.comparison_engine.preferences}")
+        print(f"[DEBUG:COMPARISON_ENGINE] target_roles={self.comparison_engine.requirements.get('target_roles', [])}")
+
         for job in jobs_to_process:
             job_url = job.get("job_url", "")
             try:
-                deterministic_scores_map[job_url] = self.comparison_engine.calculate_deterministic_score(job)
+                det_scores = self.comparison_engine.calculate_deterministic_score(job)
+                deterministic_scores_map[job_url] = det_scores
+                print(f"[DEBUG:DET_SCORE] {job.get('title', 'Unknown')}: title={det_scores.get('title_score')}, salary={det_scores.get('salary_score')}, location={det_scores.get('location_score')}, total={det_scores.get('deterministic_score')}")
             except Exception as e:
                 print(f"[WARNING] Deterministic scoring failed for {job.get('title', 'Unknown')}: {e}")
                 deterministic_scores_map[job_url] = None
@@ -757,8 +765,15 @@ In your 2-3 sentence explanation, state:
                     max_tokens=2048,
                     json_schema=json_schema
                 )
+                # DEBUG: Log raw AI response
+                if response:
+                    print(f"\n[DEBUG:AI_EXECUTOR] Raw AI response: match_score={response.get('match_score')}")
+                    print(f"[DEBUG:AI_EXECUTOR] Reasoning: {str(response.get('reasoning', ''))[:200]}...")
+                else:
+                    print(f"\n[DEBUG:AI_EXECUTOR] Response is None/empty")
                 return response
             except Exception as e:
+                print(f"\n[DEBUG:AI_EXECUTOR] Exception: {type(e).__name__}: {e}")
                 return None
 
         # Define result merger
@@ -766,6 +781,11 @@ In your 2-3 sentence explanation, state:
             """Merge AI result into job dict"""
             # Get deterministic scores from temporary storage
             deterministic_scores = job.pop('_deterministic_scores', None)
+            job_title = job.get('title', 'Unknown')
+
+            print(f"\n[DEBUG:RESULT_MERGER] Processing: {job_title}")
+            print(f"[DEBUG:RESULT_MERGER] Deterministic scores: {deterministic_scores}")
+            print(f"[DEBUG:RESULT_MERGER] AI result: {result}")
 
             if result and isinstance(result, dict):
                 # Extract AI score and reasoning
@@ -773,8 +793,11 @@ In your 2-3 sentence explanation, state:
                 ai_reasoning = result.get("reasoning", "No reasoning provided")
                 matched_requirements = result.get("matched_requirements", {})
 
+                print(f"[DEBUG:RESULT_MERGER] Extracted AI score: {ai_match_score}")
+
                 # Validate AI score
                 if not isinstance(ai_match_score, (int, float)) or ai_match_score < 0 or ai_match_score > 100:
+                    print(f"[DEBUG:RESULT_MERGER] Invalid AI score, defaulting to 0")
                     ai_match_score = 0
 
                 # Combine with deterministic scores if available
@@ -793,10 +816,12 @@ In your 2-3 sentence explanation, state:
                         "combined_score": final_score,
                         "deterministic_breakdown": deterministic_scores,
                     }
+                    print(f"[DEBUG:RESULT_MERGER] Combined score: det={deterministic_scores['deterministic_score']} + ai_weighted={combined['ai_component']:.1f} = {final_score}")
                 else:
                     final_score = int(ai_match_score)
                     final_reasoning = ai_reasoning
                     scoring_breakdown = None
+                    print(f"[DEBUG:RESULT_MERGER] No deterministic scores, using raw AI score: {final_score}")
 
                 # Check preferences
                 preference_checks = self.analyzer.validate_job_preferences(job)
@@ -813,6 +838,7 @@ In your 2-3 sentence explanation, state:
                 if scoring_breakdown:
                     job_with_score["scoring_breakdown"] = scoring_breakdown
 
+                print(f"[DEBUG:RESULT_MERGER] FINAL SCORE for {job_title}: {final_score}/100")
                 return job_with_score
             else:
                 # Failure case
