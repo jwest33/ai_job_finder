@@ -118,14 +118,135 @@ Return PASSED only if all facts are preserved exactly.""",
     parameters: LLMParameters = Field(default_factory=lambda: LLMParameters(temperature=0.1))
 
 
+# =============================================================================
+# Job Matching Pipeline Configuration Models
+# =============================================================================
+
+class MatchScorerConfig(BaseModel):
+    """Configuration for job scoring (Pass 1 of matching pipeline)."""
+    system_prompt: str = Field(
+        default="""You are an expert job matching system. Evaluate how well this job posting matches what the candidate is looking for AND whether they're qualified.
+
+Complete each evaluation step and track your assessment. Your final score MUST reflect the cumulative result of all steps.
+
+**STEP 1: DEAL-BREAKER CHECK**
+Review ONLY the MUST-HAVES and AVOID lists (these are the ONLY deal-breakers):
+- Does this job satisfy ALL MUST-HAVES? (Yes/No)
+- Does this job contain ANY AVOID items? (Yes/No)
+- If ANY deal-breaker is triggered → Cap score at 49 maximum
+
+IMPORTANT: Skills and other preferences are NOT deal-breakers. A job missing some preferred skills should NOT be disqualified.
+
+**STEP 2: DOMAIN MATCH CHECK**
+Read the ENTIRE job description to determine the actual role:
+- What is the primary domain? (e.g., data engineering, frontend, DevOps, etc.)
+- Does this match the candidate's target domain? (Yes/Partial/No)
+- If NO (wrong domain entirely) → Cap score at 59 maximum
+- If PARTIAL (adjacent/overlapping domain) → Cap score at 74 maximum
+
+**STEP 3: ROLE ALIGNMENT SCORING** (0-30 points)
+How well does the role match what the candidate wants?
+- 25-30: Exact target role match
+- 18-24: Strong alignment
+- 10-17: Moderate alignment
+- 0-9: Weak alignment
+
+**STEP 4: QUALIFICATIONS FIT SCORING** (0-40 points)
+How qualified is the candidate for this specific role?
+- 35-40: Exceeds requirements
+- 28-34: Fully qualified
+- 20-27: Mostly qualified
+- 12-19: Partially qualified
+- 0-11: Under-qualified
+
+**STEP 5: PREFERENCES SCORING** (0-30 points)
+How well does the job meet the candidate's stated preferences?
+- Remote/location preference met? (0-10 points)
+- Salary in acceptable range? (0-10 points)
+- Other preferences? (0-10 points)
+
+**SCORE INTERPRETATION:**
+- 85-100: Strong match - Right role, qualified, core preferences met
+- 70-84: Good match - Right domain, qualified, some trade-offs
+- 50-69: Moderate match - Alignment concerns or significant gaps
+- 0-49: Poor match - Wrong domain or deal-breaker triggered""",
+        description="System prompt for job scoring evaluation"
+    )
+    parameters: LLMParameters = Field(default_factory=lambda: LLMParameters(temperature=0.2, max_tokens=2048))
+
+
+class GapAnalyzerConfig(BaseModel):
+    """Configuration for gap analysis (Pass 2 of matching pipeline)."""
+    system_prompt: str = Field(
+        default="""You are an expert career advisor providing detailed gap analysis to help candidates understand their fit for positions.
+
+**ANALYSIS INSTRUCTIONS:**
+
+1. **Strengths**: List 3-5 specific reasons why this candidate is a good fit. For each strength:
+   - Reference actual experience from their resume
+   - Connect it to specific job requirements
+   - Focus on title match, skills alignment, experience level fit
+
+2. **Gaps**: List specific skills, experience, or qualifications the candidate lacks. Organize by:
+   - Title/Seniority gaps (e.g., "Job requires director-level, candidate is senior")
+   - Skills gaps (specific technical skills they lack)
+   - Experience gaps (years, certifications, etc.)
+   - Compensation concerns (if salary below requirements)
+
+3. **Red Flags**: Identify serious mismatches by checking:
+   - MUST-HAVES violations (remote requirement, salary minimum, job type)
+   - AVOID list items (contract work, wrong seniority, etc.)
+   - Fundamental deal-breakers
+   Leave empty if none.
+
+4. **Overall Assessment**: Write 2-3 sentences summarizing:
+   - Whether you'd recommend applying
+   - How well each major section aligns
+   - Whether this advances their career goals
+
+Be specific and reference actual details from the resume and job description.""",
+        description="System prompt for gap analysis"
+    )
+    parameters: LLMParameters = Field(default_factory=lambda: LLMParameters(temperature=0.4, max_tokens=2048))
+
+
+class ResumeOptimizerConfig(BaseModel):
+    """Configuration for resume optimization (Pass 3 of matching pipeline)."""
+    system_prompt: str = Field(
+        default="""You are an expert resume writer and career coach. Using the candidate's profile and resume, provide specific, actionable recommendations to tailor their resume for this job application.
+
+**RECOMMENDATION CATEGORIES:**
+
+1. **Keywords**: List 5-10 important keywords from the job description that should appear in the resume. Focus on technical skills, tools, and methodologies mentioned in the job posting.
+
+2. **Experience Highlights**: List 3-5 specific bullets or achievements from the candidate's resume that should be FEATURED PROMINENTLY. Include the actual text from their resume.
+
+3. **Sections to Expand**: List 2-3 sections of the resume that should be expanded or emphasized, with specific guidance on what to add.
+
+4. **Cover Letter Points**: List 3-4 key talking points for the cover letter that directly address the job requirements and highlight relevant experience.
+
+5. **Resume Summary**: Write a 2-3 sentence professional summary statement tailored specifically for this job application.
+
+Be specific and actionable. Reference actual content from the resume where possible.""",
+        description="System prompt for resume optimization recommendations"
+    )
+    parameters: LLMParameters = Field(default_factory=lambda: LLMParameters(temperature=0.5, max_tokens=2048))
+
+
 class PromptConfig(BaseModel):
     """Complete prompt configuration for a profile."""
-    version: str = Field(default="1.0", description="Config version for migrations")
+    version: str = Field(default="1.1", description="Config version for migrations")
     updated_at: Optional[str] = Field(default=None, description="Last update timestamp")
 
+    # Document generation prompts
     resume_rewriter: ResumeRewriterConfig = Field(default_factory=ResumeRewriterConfig)
     cover_letter: CoverLetterConfig = Field(default_factory=CoverLetterConfig)
     verification: VerificationConfig = Field(default_factory=VerificationConfig)
+
+    # Job matching pipeline prompts
+    match_scorer: MatchScorerConfig = Field(default_factory=MatchScorerConfig)
+    gap_analyzer: GapAnalyzerConfig = Field(default_factory=GapAnalyzerConfig)
+    resume_optimizer: ResumeOptimizerConfig = Field(default_factory=ResumeOptimizerConfig)
 
 
 # =============================================================================
@@ -273,3 +394,18 @@ def get_resume_rewriter_config() -> ResumeRewriterConfig:
 def get_cover_letter_config() -> CoverLetterConfig:
     """Get cover letter config for the active profile."""
     return get_prompt_config().cover_letter
+
+
+def get_match_scorer_config() -> MatchScorerConfig:
+    """Get match scorer config for the active profile."""
+    return get_prompt_config().match_scorer
+
+
+def get_gap_analyzer_config() -> GapAnalyzerConfig:
+    """Get gap analyzer config for the active profile."""
+    return get_prompt_config().gap_analyzer
+
+
+def get_resume_optimizer_config() -> ResumeOptimizerConfig:
+    """Get resume optimizer config for the active profile."""
+    return get_prompt_config().resume_optimizer

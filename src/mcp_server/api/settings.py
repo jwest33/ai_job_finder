@@ -18,6 +18,9 @@ from src.job_matcher.prompt_config import (
     ResumeRewriterConfig,
     CoverLetterConfig,
     VerificationConfig,
+    MatchScorerConfig,
+    GapAnalyzerConfig,
+    ResumeOptimizerConfig,
     LLMParameters,
 )
 
@@ -64,13 +67,36 @@ class VerificationUpdate(BaseModel):
     parameters: Optional[LLMParametersUpdate] = None
 
 
+class MatchScorerUpdate(BaseModel):
+    """Update model for match scorer config."""
+    system_prompt: Optional[str] = None
+    parameters: Optional[LLMParametersUpdate] = None
+
+
+class GapAnalyzerUpdate(BaseModel):
+    """Update model for gap analyzer config."""
+    system_prompt: Optional[str] = None
+    parameters: Optional[LLMParametersUpdate] = None
+
+
+class ResumeOptimizerUpdate(BaseModel):
+    """Update model for resume optimizer config."""
+    system_prompt: Optional[str] = None
+    parameters: Optional[LLMParametersUpdate] = None
+
+
 class PromptConfigResponse(BaseModel):
     """Response model for prompt config."""
     version: str
     updated_at: Optional[str]
+    # Document generation
     resume_rewriter: Dict[str, Any]
     cover_letter: Dict[str, Any]
     verification: Dict[str, Any]
+    # Job matching pipeline
+    match_scorer: Dict[str, Any]
+    gap_analyzer: Dict[str, Any]
+    resume_optimizer: Dict[str, Any]
 
 
 # =============================================================================
@@ -86,9 +112,14 @@ async def get_prompt_config():
         return PromptConfigResponse(
             version=config.version,
             updated_at=config.updated_at,
+            # Document generation
             resume_rewriter=config.resume_rewriter.model_dump(),
             cover_letter=config.cover_letter.model_dump(),
             verification=config.verification.model_dump(),
+            # Job matching pipeline
+            match_scorer=config.match_scorer.model_dump(),
+            gap_analyzer=config.gap_analyzer.model_dump(),
+            resume_optimizer=config.resume_optimizer.model_dump(),
         )
     except Exception as e:
         logger.exception(f"Failed to get prompt config: {e}")
@@ -211,6 +242,110 @@ async def update_verification_config(update: VerificationUpdate):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# =============================================================================
+# Job Matching Pipeline Prompt Endpoints
+# =============================================================================
+
+@router.put("/prompts/match-scorer")
+async def update_match_scorer_config(update: MatchScorerUpdate):
+    """Update match scorer configuration."""
+    try:
+        manager = PromptConfigManager()
+        config = manager.load()
+
+        # Apply updates
+        if update.system_prompt is not None:
+            config.match_scorer.system_prompt = update.system_prompt
+
+        # Apply parameter updates
+        if update.parameters:
+            if update.parameters.temperature is not None:
+                config.match_scorer.parameters.temperature = update.parameters.temperature
+            if update.parameters.max_tokens is not None:
+                config.match_scorer.parameters.max_tokens = update.parameters.max_tokens
+            if update.parameters.max_retries is not None:
+                config.match_scorer.parameters.max_retries = update.parameters.max_retries
+
+        manager.save(config)
+
+        return {
+            "success": True,
+            "message": "Match scorer config updated",
+            "config": config.match_scorer.model_dump(),
+        }
+    except Exception as e:
+        logger.exception(f"Failed to update match scorer config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/prompts/gap-analyzer")
+async def update_gap_analyzer_config(update: GapAnalyzerUpdate):
+    """Update gap analyzer configuration."""
+    try:
+        manager = PromptConfigManager()
+        config = manager.load()
+
+        # Apply updates
+        if update.system_prompt is not None:
+            config.gap_analyzer.system_prompt = update.system_prompt
+
+        # Apply parameter updates
+        if update.parameters:
+            if update.parameters.temperature is not None:
+                config.gap_analyzer.parameters.temperature = update.parameters.temperature
+            if update.parameters.max_tokens is not None:
+                config.gap_analyzer.parameters.max_tokens = update.parameters.max_tokens
+            if update.parameters.max_retries is not None:
+                config.gap_analyzer.parameters.max_retries = update.parameters.max_retries
+
+        manager.save(config)
+
+        return {
+            "success": True,
+            "message": "Gap analyzer config updated",
+            "config": config.gap_analyzer.model_dump(),
+        }
+    except Exception as e:
+        logger.exception(f"Failed to update gap analyzer config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/prompts/resume-optimizer")
+async def update_resume_optimizer_config(update: ResumeOptimizerUpdate):
+    """Update resume optimizer configuration."""
+    try:
+        manager = PromptConfigManager()
+        config = manager.load()
+
+        # Apply updates
+        if update.system_prompt is not None:
+            config.resume_optimizer.system_prompt = update.system_prompt
+
+        # Apply parameter updates
+        if update.parameters:
+            if update.parameters.temperature is not None:
+                config.resume_optimizer.parameters.temperature = update.parameters.temperature
+            if update.parameters.max_tokens is not None:
+                config.resume_optimizer.parameters.max_tokens = update.parameters.max_tokens
+            if update.parameters.max_retries is not None:
+                config.resume_optimizer.parameters.max_retries = update.parameters.max_retries
+
+        manager.save(config)
+
+        return {
+            "success": True,
+            "message": "Resume optimizer config updated",
+            "config": config.resume_optimizer.model_dump(),
+        }
+    except Exception as e:
+        logger.exception(f"Failed to update resume optimizer config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# =============================================================================
+# Reset/Defaults Endpoints
+# =============================================================================
+
 @router.post("/prompts/reset")
 async def reset_prompt_config():
     """Reset prompt configuration to defaults."""
@@ -236,9 +371,14 @@ async def get_default_prompts():
     """Get the default prompt configuration (for reference/reset preview)."""
     default_config = PromptConfig()
     return {
+        # Document generation
         "resume_rewriter": default_config.resume_rewriter.model_dump(),
         "cover_letter": default_config.cover_letter.model_dump(),
         "verification": default_config.verification.model_dump(),
+        # Job matching pipeline
+        "match_scorer": default_config.match_scorer.model_dump(),
+        "gap_analyzer": default_config.gap_analyzer.model_dump(),
+        "resume_optimizer": default_config.resume_optimizer.model_dump(),
     }
 
 

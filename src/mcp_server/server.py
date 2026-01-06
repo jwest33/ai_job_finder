@@ -9,9 +9,10 @@ import logging
 from typing import Any, Dict, List, Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from pathlib import Path
 
@@ -157,10 +158,7 @@ async def health_check():
 
 
 # Serve static files from web build (if exists)
-# NOTE: This must be LAST - it's a catch-all that intercepts unmatched routes
 web_dist = Path(__file__).parent.parent.parent / "web" / "dist"
-if web_dist.exists():
-    app.mount("/", StaticFiles(directory=str(web_dist), html=True), name="static")
 
 
 # =============================================================================
@@ -168,9 +166,17 @@ if web_dist.exists():
 # =============================================================================
 
 
-@app.get("/", response_model=ServerInfo)
-async def root():
-    """Get server information and capabilities"""
+@app.get("/")
+async def root(request: Request):
+    """Get server information and capabilities, or serve SPA index.html"""
+    # If web dist exists and request accepts HTML (browser), serve the SPA
+    accept = request.headers.get("accept", "")
+    if web_dist.exists() and "text/html" in accept:
+        index_path = web_dist / "index.html"
+        if index_path.exists():
+            return FileResponse(index_path)
+
+    # Otherwise return API info (for API clients)
     return ServerInfo(
         name=MCPServerConfig.NAME,
         version=MCPServerConfig.VERSION,
@@ -456,6 +462,35 @@ async def dispatch_resource(
 
     else:
         raise NotImplementedError(f"Resource protocol '{protocol}' not yet implemented")
+
+
+# =============================================================================
+# SPA Catch-All Route (must be LAST to not interfere with API routes)
+# =============================================================================
+
+if web_dist.exists():
+    # Mount static assets directory
+    assets_dir = web_dist / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="static_assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(request: Request, full_path: str):
+        """
+        Catch-all route for SPA client-side routing.
+        Serves static files if they exist, otherwise returns index.html.
+        """
+        # Try to serve the file directly if it exists (e.g., favicon.ico, robots.txt)
+        file_path = web_dist / full_path
+        if file_path.is_file():
+            return FileResponse(file_path)
+
+        # For all other routes, serve index.html (SPA client-side routing)
+        index_path = web_dist / "index.html"
+        if index_path.exists():
+            return FileResponse(index_path)
+
+        raise HTTPException(status_code=404, detail="Not Found")
 
 
 # =============================================================================

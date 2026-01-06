@@ -58,7 +58,9 @@ export function SettingsPage() {
 
   // Prompt configuration state
   const [showPromptConfig, setShowPromptConfig] = useState(false);
-  const [activePromptSection, setActivePromptSection] = useState<'resume' | 'cover-letter' | null>(null);
+  const [activePromptSection, setActivePromptSection] = useState<
+    'resume' | 'cover-letter' | 'match-scorer' | 'gap-analyzer' | 'resume-optimizer' | null
+  >(null);
   const [editingPrompt, setEditingPrompt] = useState('');
   const [editingTemp, setEditingTemp] = useState(0.3);
 
@@ -246,15 +248,32 @@ export function SettingsPage() {
   };
 
   // Prompt configuration handlers
-  const handleSavePrompt = async (section: 'resume' | 'cover-letter') => {
+  const handleSavePrompt = async (
+    section: 'resume' | 'cover-letter' | 'match-scorer' | 'gap-analyzer' | 'resume-optimizer'
+  ) => {
     try {
       if (section === 'resume') {
         await settingsApi.updateResumeRewriter({
           system_prompt: editingPrompt,
           parameters: { temperature: editingTemp },
         });
-      } else {
+      } else if (section === 'cover-letter') {
         await settingsApi.updateCoverLetter({
+          system_prompt: editingPrompt,
+          parameters: { temperature: editingTemp },
+        });
+      } else if (section === 'match-scorer') {
+        await settingsApi.updateMatchScorer({
+          system_prompt: editingPrompt,
+          parameters: { temperature: editingTemp },
+        });
+      } else if (section === 'gap-analyzer') {
+        await settingsApi.updateGapAnalyzer({
+          system_prompt: editingPrompt,
+          parameters: { temperature: editingTemp },
+        });
+      } else if (section === 'resume-optimizer') {
+        await settingsApi.updateResumeOptimizer({
           system_prompt: editingPrompt,
           parameters: { temperature: editingTemp },
         });
@@ -932,6 +951,220 @@ export function SettingsPage() {
                       Cancel
                     </Button>
                     <Button size="sm" onClick={() => handleSavePrompt('cover-letter')}>
+                      <Save className="w-4 h-4 mr-1" />
+                      Save
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Matching Pipeline Section Header */}
+            <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                Job Matching Pipeline
+              </h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                Customize the prompts used in the 3-pass job matching pipeline.
+              </p>
+            </div>
+
+            {/* Match Scorer Section */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg">
+              <button
+                onClick={() => {
+                  if (activePromptSection === 'match-scorer') {
+                    setActivePromptSection(null);
+                  } else {
+                    setActivePromptSection('match-scorer');
+                    setEditingPrompt(promptConfig?.match_scorer.system_prompt || '');
+                    setEditingTemp(promptConfig?.match_scorer.parameters.temperature || 0.2);
+                  }
+                }}
+                className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700 rounded-t-lg"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-gray-900 dark:text-white">Job Scoring (Pass 1)</span>
+                  <span className="text-xs bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded">
+                    Scoring
+                  </span>
+                </div>
+                <span className="text-xs text-gray-500">
+                  temp: {promptConfig?.match_scorer.parameters.temperature || 0.2}
+                </span>
+              </button>
+
+              {activePromptSection === 'match-scorer' && (
+                <div className="px-4 pb-4 space-y-3 border-t border-gray-200 dark:border-gray-700">
+                  <div className="pt-3">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      System Prompt
+                    </label>
+                    <textarea
+                      value={editingPrompt}
+                      onChange={(e) => setEditingPrompt(e.target.value)}
+                      rows={12}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Temperature: {editingTemp.toFixed(2)}
+                    </label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.1"
+                      value={editingTemp}
+                      onChange={(e) => setEditingTemp(parseFloat(e.target.value))}
+                      className="w-full"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Lower temperature (0.1-0.3) recommended for consistent scoring
+                    </p>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button size="sm" variant="secondary" onClick={() => setActivePromptSection(null)}>
+                      Cancel
+                    </Button>
+                    <Button size="sm" onClick={() => handleSavePrompt('match-scorer')}>
+                      <Save className="w-4 h-4 mr-1" />
+                      Save
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Gap Analyzer Section */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg">
+              <button
+                onClick={() => {
+                  if (activePromptSection === 'gap-analyzer') {
+                    setActivePromptSection(null);
+                  } else {
+                    setActivePromptSection('gap-analyzer');
+                    setEditingPrompt(promptConfig?.gap_analyzer.system_prompt || '');
+                    setEditingTemp(promptConfig?.gap_analyzer.parameters.temperature || 0.4);
+                  }
+                }}
+                className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700 rounded-t-lg"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-gray-900 dark:text-white">Gap Analysis (Pass 2)</span>
+                  <span className="text-xs bg-yellow-100 dark:bg-yellow-900/50 text-yellow-700 dark:text-yellow-300 px-2 py-0.5 rounded">
+                    Analysis
+                  </span>
+                </div>
+                <span className="text-xs text-gray-500">
+                  temp: {promptConfig?.gap_analyzer.parameters.temperature || 0.4}
+                </span>
+              </button>
+
+              {activePromptSection === 'gap-analyzer' && (
+                <div className="px-4 pb-4 space-y-3 border-t border-gray-200 dark:border-gray-700">
+                  <div className="pt-3">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      System Prompt
+                    </label>
+                    <textarea
+                      value={editingPrompt}
+                      onChange={(e) => setEditingPrompt(e.target.value)}
+                      rows={12}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Temperature: {editingTemp.toFixed(2)}
+                    </label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.1"
+                      value={editingTemp}
+                      onChange={(e) => setEditingTemp(parseFloat(e.target.value))}
+                      className="w-full"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Moderate temperature (0.3-0.5) for balanced analysis
+                    </p>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button size="sm" variant="secondary" onClick={() => setActivePromptSection(null)}>
+                      Cancel
+                    </Button>
+                    <Button size="sm" onClick={() => handleSavePrompt('gap-analyzer')}>
+                      <Save className="w-4 h-4 mr-1" />
+                      Save
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Resume Optimizer Section */}
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg">
+              <button
+                onClick={() => {
+                  if (activePromptSection === 'resume-optimizer') {
+                    setActivePromptSection(null);
+                  } else {
+                    setActivePromptSection('resume-optimizer');
+                    setEditingPrompt(promptConfig?.resume_optimizer.system_prompt || '');
+                    setEditingTemp(promptConfig?.resume_optimizer.parameters.temperature || 0.5);
+                  }
+                }}
+                className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700 rounded-t-lg"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-gray-900 dark:text-white">Resume Optimization (Pass 3)</span>
+                  <span className="text-xs bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300 px-2 py-0.5 rounded">
+                    Suggestions
+                  </span>
+                </div>
+                <span className="text-xs text-gray-500">
+                  temp: {promptConfig?.resume_optimizer.parameters.temperature || 0.5}
+                </span>
+              </button>
+
+              {activePromptSection === 'resume-optimizer' && (
+                <div className="px-4 pb-4 space-y-3 border-t border-gray-200 dark:border-gray-700">
+                  <div className="pt-3">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      System Prompt
+                    </label>
+                    <textarea
+                      value={editingPrompt}
+                      onChange={(e) => setEditingPrompt(e.target.value)}
+                      rows={12}
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Temperature: {editingTemp.toFixed(2)}
+                    </label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.1"
+                      value={editingTemp}
+                      onChange={(e) => setEditingTemp(parseFloat(e.target.value))}
+                      className="w-full"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Higher temperature (0.4-0.6) for creative recommendations
+                    </p>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button size="sm" variant="secondary" onClick={() => setActivePromptSection(null)}>
+                      Cancel
+                    </Button>
+                    <Button size="sm" onClick={() => handleSavePrompt('resume-optimizer')}>
                       <Save className="w-4 h-4 mr-1" />
                       Save
                     </Button>

@@ -47,6 +47,22 @@ export interface VerificationUpdate {
   parameters?: LLMParametersUpdate;
 }
 
+// Job matching pipeline update types
+export interface MatchScorerUpdate {
+  system_prompt?: string;
+  parameters?: LLMParametersUpdate;
+}
+
+export interface GapAnalyzerUpdate {
+  system_prompt?: string;
+  parameters?: LLMParametersUpdate;
+}
+
+export interface ResumeOptimizerUpdate {
+  system_prompt?: string;
+  parameters?: LLMParametersUpdate;
+}
+
 export interface ResumeRewriterConfig {
   system_prompt: string;
   parameters: LLMParameters;
@@ -72,12 +88,33 @@ export interface VerificationConfig {
   parameters: LLMParameters;
 }
 
+// Job matching pipeline config types
+export interface MatchScorerConfig {
+  system_prompt: string;
+  parameters: LLMParameters;
+}
+
+export interface GapAnalyzerConfig {
+  system_prompt: string;
+  parameters: LLMParameters;
+}
+
+export interface ResumeOptimizerConfig {
+  system_prompt: string;
+  parameters: LLMParameters;
+}
+
 export interface PromptConfig {
   version: string;
   updated_at: string | null;
+  // Document generation
   resume_rewriter: ResumeRewriterConfig;
   cover_letter: CoverLetterConfig;
   verification: VerificationConfig;
+  // Job matching pipeline
+  match_scorer: MatchScorerConfig;
+  gap_analyzer: GapAnalyzerConfig;
+  resume_optimizer: ResumeOptimizerConfig;
 }
 
 export interface LLMTrace {
@@ -160,6 +197,46 @@ export const settingsApi = {
   async updateVerification(updates: VerificationUpdate): Promise<{ success: boolean; config: VerificationConfig }> {
     try {
       const response = await apiClient.put('/settings/prompts/verification', updates);
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  // ===========================================================================
+  // Job Matching Pipeline API
+  // ===========================================================================
+
+  /**
+   * Update match scorer configuration.
+   */
+  async updateMatchScorer(updates: MatchScorerUpdate): Promise<{ success: boolean; config: MatchScorerConfig }> {
+    try {
+      const response = await apiClient.put('/settings/prompts/match-scorer', updates);
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  /**
+   * Update gap analyzer configuration.
+   */
+  async updateGapAnalyzer(updates: GapAnalyzerUpdate): Promise<{ success: boolean; config: GapAnalyzerConfig }> {
+    try {
+      const response = await apiClient.put('/settings/prompts/gap-analyzer', updates);
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  /**
+   * Update resume optimizer configuration.
+   */
+  async updateResumeOptimizer(updates: ResumeOptimizerUpdate): Promise<{ success: boolean; config: ResumeOptimizerConfig }> {
+    try {
+      const response = await apiClient.put('/settings/prompts/resume-optimizer', updates);
       return response.data;
     } catch (error) {
       handleApiError(error);
