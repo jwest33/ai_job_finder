@@ -23,7 +23,8 @@ from src.job_matcher.cover_letter_generator import CoverLetterGenerator
 from src.job_matcher.models.resume_rewrite import (
     ResumeRewriteRequest, ResumeRewriteResponse,
     CoverLetterRequest, CoverLetterResponse,
-    RewrittenResume, VerificationReport
+    RewrittenResume, VerificationReport,
+    RewrittenSummary, RewrittenExperienceEntry, RewrittenSkills
 )
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,28 @@ class TailoredDocumentResponse(BaseModel):
 class CoverLetterTemplateRequest(BaseModel):
     """Request to upload a cover letter template."""
     content: str
+
+
+class SectionRegenerateRequest(BaseModel):
+    """Request to regenerate a specific resume section with user instructions."""
+    job_url: str
+    section_type: str  # 'summary', 'experience', or 'skills'
+    section_index: Optional[int] = None  # Required for 'experience'
+    instructions: str
+
+
+class RewrittenSectionData(BaseModel):
+    """Container for a single rewritten section."""
+    summary: Optional[RewrittenSummary] = None
+    experience: Optional[RewrittenExperienceEntry] = None
+    skills: Optional[RewrittenSkills] = None
+
+
+class SectionRegenerateResponse(BaseModel):
+    """Response from section regeneration."""
+    success: bool
+    rewritten_section: Optional[RewrittenSectionData] = None
+    error: Optional[str] = None
 
 
 def _save_tailored_document(
@@ -359,6 +382,94 @@ async def rewrite_resume(request: ResumeRewriteRequest):
             success=False,
             error=str(e),
         )
+
+
+@router.post("/resume/regenerate-section", response_model=SectionRegenerateResponse)
+async def regenerate_section(request: SectionRegenerateRequest):
+    """
+    Regenerate a specific resume section with user-provided instructions.
+
+    Allows users to provide feedback on what to improve or change about a section,
+    then regenerates just that section while preserving the rest.
+    """
+    decoded_url = unquote(request.job_url)
+    logger.info(f"Section regeneration request for {request.section_type} in job: {decoded_url}")
+
+    if request.section_type not in ('summary', 'experience', 'skills'):
+        return SectionRegenerateResponse(
+            success=False,
+            error=f"Invalid section_type: {request.section_type}. Must be 'summary', 'experience', or 'skills'"
+        )
+
+    if request.section_type == 'experience' and request.section_index is None:
+        return SectionRegenerateResponse(
+            success=False,
+            error="section_index is required for experience sections"
+        )
+
+    # Load resume
+    resume_text = _load_resume_text()
+    if not resume_text:
+        return SectionRegenerateResponse(success=False, error="Resume not found in current profile")
+
+    # Load job
+    job = _load_job(decoded_url)
+    if not job:
+        return SectionRegenerateResponse(success=False, error="Job not found")
+
+    def _do_regenerate():
+        # Parse resume
+        parser = ResumeParser()
+        if not parser.test_connection():
+            return None, "AI provider not available"
+
+        parsed = parser.parse(resume_text)
+        if not parsed:
+            return None, "Failed to parse resume"
+
+        # Prepare gap analysis if available
+        gap_analysis = None
+        if job.get("strengths") or job.get("gaps"):
+            gap_analysis = {
+                "strengths": job.get("strengths", []),
+                "gaps": job.get("gaps", []),
+                "assessment": job.get("assessment", ""),
+                "keywords": job.get("skills", [])[:10],
+            }
+
+        # Regenerate section with instructions
+        rewriter = ResumeRewriter()
+        result = rewriter.regenerate_section(
+            parsed_resume=parsed,
+            job=job,
+            section_type=request.section_type,
+            section_index=request.section_index,
+            instructions=request.instructions,
+            gap_analysis=gap_analysis,
+        )
+
+        return result, None
+
+    try:
+        result, error = await asyncio.to_thread(_do_regenerate)
+
+        if error:
+            return SectionRegenerateResponse(success=False, error=error)
+
+        if not result:
+            return SectionRegenerateResponse(
+                success=False,
+                error="Failed to regenerate section"
+            )
+
+        return SectionRegenerateResponse(
+            success=True,
+            rewritten_section=RewrittenSectionData(**result),
+        )
+
+    except Exception as e:
+        logger.exception(f"Section regeneration error: {e}")
+        return SectionRegenerateResponse(success=False, error=str(e))
 
 
 # =============================================================================

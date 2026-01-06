@@ -17,6 +17,9 @@ import {
   Clock,
   ToggleLeft,
   ToggleRight,
+  RotateCcw,
+  MessageSquare,
+  X,
 } from 'lucide-react';
 import { Modal } from '../common/Modal';
 import { documentsApi, type TailoredDocument } from '../../api/documents';
@@ -53,10 +56,15 @@ export function DocumentGenerationModal({
   const [saving, setSaving] = useState(false);
   const [showChanges, setShowChanges] = useState(false);
 
-  // Section selection state: tracks which version (original vs rewritten) to use per section
-  // Keys: 'summary', 'experience-0', 'experience-1', ..., 'skills'
+  // Section selection state: tracks which version (original vs rewritten) to use per item
+  // Keys: 'summary', 'experience-{expIdx}-bullet-{bulletIdx}', 'skills'
   // Values: 'original' | 'rewritten'
   const [sectionSelections, setSectionSelections] = useState<Record<string, 'original' | 'rewritten'>>({});
+
+  // Regeneration state
+  const [regeneratingSection, setRegeneratingSection] = useState<string | null>(null);
+  const [regenerateInstructions, setRegenerateInstructions] = useState('');
+  const [showRegenerateModal, setShowRegenerateModal] = useState<string | null>(null);
 
   // Saved document state
   const [isLoadingSaved, setIsLoadingSaved] = useState(false);
@@ -115,8 +123,11 @@ export function DocumentGenerationModal({
         summary: 'rewritten',
         skills: 'rewritten',
       };
-      resumeResult.rewritten_resume.experience.forEach((_, idx) => {
-        initial[`experience-${idx}`] = 'rewritten';
+      // Initialize individual bullet selections
+      resumeResult.rewritten_resume.experience.forEach((exp, expIdx) => {
+        exp.original_bullets.forEach((_, bulletIdx) => {
+          initial[`experience-${expIdx}-bullet-${bulletIdx}`] = 'rewritten';
+        });
       });
       setSectionSelections(initial);
     }
@@ -130,7 +141,7 @@ export function DocumentGenerationModal({
     }));
   };
 
-  // Build plain text based on current section selections
+  // Build plain text based on current section selections (supports per-bullet selection)
   const buildCustomPlainText = (): string => {
     if (!resumeResult?.rewritten_resume) return '';
 
@@ -157,17 +168,18 @@ export function DocumentGenerationModal({
       lines.push('');
     }
 
-    // Experience
+    // Experience (with per-bullet selection support)
     lines.push('EXPERIENCE');
     lines.push('-'.repeat(40));
-    resume.experience.forEach((exp, idx) => {
+    resume.experience.forEach((exp, expIdx) => {
       lines.push(`${exp.title} | ${exp.company}`);
       lines.push(`${exp.start_date} - ${exp.end_date}${exp.location ? ` | ${exp.location}` : ''}`);
-      const bullets = sectionSelections[`experience-${idx}`] === 'original'
-        ? exp.original_bullets
-        : exp.rewritten_bullets;
-      bullets.forEach(bullet => {
-        lines.push(`• ${bullet}`);
+      // Select each bullet individually based on per-bullet selections
+      exp.original_bullets.forEach((originalBullet, bulletIdx) => {
+        const bulletKey = `experience-${expIdx}-bullet-${bulletIdx}`;
+        const useOriginal = sectionSelections[bulletKey] === 'original';
+        const bulletText = useOriginal ? originalBullet : (exp.rewritten_bullets[bulletIdx] || originalBullet);
+        lines.push(`• ${bulletText}`);
       });
       lines.push('');
     });
@@ -310,6 +322,9 @@ export function DocumentGenerationModal({
     setShowTemplateUpload(false);
     setTemplateContent('');
     setSectionSelections({});
+    setRegeneratingSection(null);
+    setRegenerateInstructions('');
+    setShowRegenerateModal(null);
     onClose();
   };
 
@@ -334,6 +349,80 @@ export function DocumentGenerationModal({
     } finally {
       setUploadingTemplate(false);
     }
+  };
+
+  // Handle section regeneration with user instructions
+  const handleRegenerateSection = async (sectionType: 'summary' | 'experience' | 'skills', sectionIndex?: number) => {
+    if (!regenerateInstructions.trim()) {
+      setError('Please provide instructions for what to improve');
+      return;
+    }
+
+    const sectionKey = sectionIndex !== undefined
+      ? `${sectionType}-${sectionIndex}`
+      : sectionType;
+
+    setRegeneratingSection(sectionKey);
+    setShowRegenerateModal(null);
+
+    try {
+      const result = await documentsApi.regenerateSection({
+        job_url: job.job_url,
+        section_type: sectionType,
+        section_index: sectionIndex,
+        instructions: regenerateInstructions,
+      });
+
+      if (result.success && result.rewritten_section) {
+        const rewrittenSection = result.rewritten_section;
+        // Update the resume result with the new section
+        setResumeResult(prev => {
+          if (!prev?.rewritten_resume) return prev;
+
+          const updated = { ...prev.rewritten_resume };
+
+          if (sectionType === 'summary' && rewrittenSection.summary) {
+            updated.summary = rewrittenSection.summary;
+          } else if (sectionType === 'experience' && sectionIndex !== undefined && rewrittenSection.experience) {
+            updated.experience = [...updated.experience];
+            updated.experience[sectionIndex] = rewrittenSection.experience;
+          } else if (sectionType === 'skills' && rewrittenSection.skills) {
+            updated.skills = rewrittenSection.skills;
+          }
+
+          return {
+            ...prev,
+            rewritten_resume: updated,
+          };
+        });
+
+        // Reset selections for regenerated section to use rewritten
+        if (sectionType === 'experience' && sectionIndex !== undefined && resumeResult?.rewritten_resume) {
+          const exp = resumeResult.rewritten_resume.experience[sectionIndex];
+          const newSelections: Record<string, 'original' | 'rewritten'> = {};
+          exp.original_bullets.forEach((_, bulletIdx) => {
+            newSelections[`experience-${sectionIndex}-bullet-${bulletIdx}`] = 'rewritten';
+          });
+          setSectionSelections(prev => ({ ...prev, ...newSelections }));
+        } else {
+          setSectionSelections(prev => ({ ...prev, [sectionType]: 'rewritten' }));
+        }
+      } else {
+        setError(result.error || 'Failed to regenerate section');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to regenerate section');
+    } finally {
+      setRegeneratingSection(null);
+      setRegenerateInstructions('');
+    }
+  };
+
+  // Open regenerate modal for a section
+  const openRegenerateModal = (sectionType: string, sectionIndex?: number) => {
+    const key = sectionIndex !== undefined ? `${sectionType}-${sectionIndex}` : sectionType;
+    setShowRegenerateModal(key);
+    setRegenerateInstructions('');
   };
 
   const getVerificationIcon = (status: VerificationStatus) => {
@@ -641,27 +730,45 @@ export function DocumentGenerationModal({
                 {resumeResult.rewritten_resume.summary && (() => {
                   const summaryChanged = resumeResult.rewritten_resume.summary.original !== resumeResult.rewritten_resume.summary.rewritten;
                   const useOriginal = sectionSelections.summary === 'original';
+                  const isRegenerating = regeneratingSection === 'summary';
                   return (
                     <div className={`border rounded-lg overflow-hidden ${useOriginal ? 'border-gray-300 dark:border-gray-600' : 'border-green-300 dark:border-green-700'}`}>
                       <div className="bg-gray-100 dark:bg-gray-800 px-3 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
                         <span className="font-medium text-gray-900 dark:text-white text-sm">Summary</span>
                         <div className="flex items-center gap-2">
-                          {!summaryChanged && (
-                            <span className="text-xs text-gray-500 dark:text-gray-400 italic">No changes</span>
-                          )}
-                          {summaryChanged && (
-                            <button
-                              onClick={() => toggleSection('summary')}
-                              className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors ${
-                                useOriginal
-                                  ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                                  : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
-                              }`}
-                              title={useOriginal ? 'Using original - click to use rewritten' : 'Using rewritten - click to use original'}
-                            >
-                              {useOriginal ? <ToggleLeft className="w-4 h-4" /> : <ToggleRight className="w-4 h-4" />}
-                              {useOriginal ? 'Original' : 'Rewritten'}
-                            </button>
+                          {isRegenerating ? (
+                            <span className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400">
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              Regenerating...
+                            </span>
+                          ) : (
+                            <>
+                              {!summaryChanged && (
+                                <span className="text-xs text-gray-500 dark:text-gray-400 italic">No changes</span>
+                              )}
+                              {summaryChanged && (
+                                <button
+                                  onClick={() => toggleSection('summary')}
+                                  className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors ${
+                                    useOriginal
+                                      ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                      : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                                  }`}
+                                  title={useOriginal ? 'Using original - click to use rewritten' : 'Using rewritten - click to use original'}
+                                >
+                                  {useOriginal ? <ToggleLeft className="w-4 h-4" /> : <ToggleRight className="w-4 h-4" />}
+                                  {useOriginal ? 'Original' : 'Rewritten'}
+                                </button>
+                              )}
+                              <button
+                                onClick={() => openRegenerateModal('summary')}
+                                className="flex items-center gap-1 px-2 py-1 rounded text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                                title="Regenerate with instructions"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>Revise</span>
+                              </button>
+                            </>
                           )}
                         </div>
                       </div>
@@ -703,10 +810,13 @@ export function DocumentGenerationModal({
                   const hasAnyChanges = exp.original_bullets.some(
                     (original, idx) => original !== exp.rewritten_bullets[idx]
                   );
-                  const sectionKey = `experience-${expIdx}`;
-                  const useOriginal = sectionSelections[sectionKey] === 'original';
+                  const isRegenerating = regeneratingSection === `experience-${expIdx}`;
+                  // Check if any bullet in this experience uses rewritten (for border color)
+                  const anyBulletRewritten = exp.original_bullets.some((_, bulletIdx) =>
+                    sectionSelections[`experience-${expIdx}-bullet-${bulletIdx}`] === 'rewritten'
+                  );
                   return (
-                    <div key={expIdx} className={`border rounded-lg overflow-hidden ${useOriginal ? 'border-gray-300 dark:border-gray-600' : 'border-green-300 dark:border-green-700'}`}>
+                    <div key={expIdx} className={`border rounded-lg overflow-hidden ${!anyBulletRewritten ? 'border-gray-300 dark:border-gray-600' : 'border-green-300 dark:border-green-700'}`}>
                       <div className="bg-gray-100 dark:bg-gray-800 px-3 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
                         <div>
                           <span className="font-medium text-gray-900 dark:text-white text-sm">
@@ -717,22 +827,25 @@ export function DocumentGenerationModal({
                           </span>
                         </div>
                         <div className="flex items-center gap-2">
-                          {!hasAnyChanges && (
-                            <span className="text-xs text-gray-500 dark:text-gray-400 italic">No changes</span>
-                          )}
-                          {hasAnyChanges && (
-                            <button
-                              onClick={() => toggleSection(sectionKey)}
-                              className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors ${
-                                useOriginal
-                                  ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                                  : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
-                              }`}
-                              title={useOriginal ? 'Using original - click to use rewritten' : 'Using rewritten - click to use original'}
-                            >
-                              {useOriginal ? <ToggleLeft className="w-4 h-4" /> : <ToggleRight className="w-4 h-4" />}
-                              {useOriginal ? 'Original' : 'Rewritten'}
-                            </button>
+                          {isRegenerating ? (
+                            <span className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400">
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              Regenerating...
+                            </span>
+                          ) : (
+                            <>
+                              {!hasAnyChanges && (
+                                <span className="text-xs text-gray-500 dark:text-gray-400 italic">No changes</span>
+                              )}
+                              <button
+                                onClick={() => openRegenerateModal('experience', expIdx)}
+                                className="flex items-center gap-1 px-2 py-1 rounded text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                                title="Regenerate with instructions"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>Revise</span>
+                              </button>
+                            </>
                           )}
                         </div>
                       </div>
@@ -740,6 +853,8 @@ export function DocumentGenerationModal({
                         {exp.original_bullets.map((originalBullet, bulletIdx) => {
                           const rewrittenBullet = exp.rewritten_bullets[bulletIdx] || originalBullet;
                           const isChanged = originalBullet !== rewrittenBullet;
+                          const bulletKey = `experience-${expIdx}-bullet-${bulletIdx}`;
+                          const useOriginalBullet = sectionSelections[bulletKey] === 'original';
 
                           if (!isChanged) {
                             // Unchanged bullet - show single column without diff styling
@@ -751,16 +866,48 @@ export function DocumentGenerationModal({
                             );
                           }
 
-                          // Changed bullet - show side-by-side diff with selection highlighting
+                          // Changed bullet - show side-by-side diff with per-bullet toggle
                           return (
-                            <div key={bulletIdx} className="grid grid-cols-2 divide-x divide-gray-200 dark:divide-gray-700">
-                              <div className={`p-2 ${!useOriginal ? 'bg-gray-50 dark:bg-gray-800/50 opacity-60' : 'bg-blue-50/50 dark:bg-blue-900/10'}`}>
-                                <span className="text-xs text-gray-500 dark:text-gray-400 mr-1">−</span>
-                                <span className="text-sm text-gray-700 dark:text-gray-300">{originalBullet}</span>
-                              </div>
-                              <div className={`p-2 ${useOriginal ? 'bg-gray-50 dark:bg-gray-800/50 opacity-60' : 'bg-green-50/50 dark:bg-green-900/10'}`}>
-                                <span className="text-xs text-green-500 dark:text-green-400 mr-1">+</span>
-                                <span className="text-sm text-gray-700 dark:text-gray-300">{rewrittenBullet}</span>
+                            <div key={bulletIdx} className="relative">
+                              <div className="grid grid-cols-2 divide-x divide-gray-200 dark:divide-gray-700">
+                                <div
+                                  className={`p-2 cursor-pointer transition-colors ${
+                                    useOriginalBullet
+                                      ? 'bg-blue-50/50 dark:bg-blue-900/10 ring-2 ring-inset ring-blue-300 dark:ring-blue-700'
+                                      : 'bg-gray-50 dark:bg-gray-800/50 opacity-60 hover:opacity-80'
+                                  }`}
+                                  onClick={() => toggleSection(bulletKey)}
+                                  title="Click to use original"
+                                >
+                                  <div className="flex items-start gap-1">
+                                    <span className="text-xs text-gray-500 dark:text-gray-400 mr-1 flex-shrink-0">−</span>
+                                    <span className="text-sm text-gray-700 dark:text-gray-300">{originalBullet}</span>
+                                  </div>
+                                  {useOriginalBullet && (
+                                    <div className="absolute top-1 left-1">
+                                      <Check className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                                    </div>
+                                  )}
+                                </div>
+                                <div
+                                  className={`p-2 cursor-pointer transition-colors ${
+                                    !useOriginalBullet
+                                      ? 'bg-green-50/50 dark:bg-green-900/10 ring-2 ring-inset ring-green-300 dark:ring-green-700'
+                                      : 'bg-gray-50 dark:bg-gray-800/50 opacity-60 hover:opacity-80'
+                                  }`}
+                                  onClick={() => toggleSection(bulletKey)}
+                                  title="Click to use rewritten"
+                                >
+                                  <div className="flex items-start gap-1">
+                                    <span className="text-xs text-green-500 dark:text-green-400 mr-1 flex-shrink-0">+</span>
+                                    <span className="text-sm text-gray-700 dark:text-gray-300">{rewrittenBullet}</span>
+                                  </div>
+                                  {!useOriginalBullet && (
+                                    <div className="absolute top-1 right-1">
+                                      <Check className="w-3 h-3 text-green-600 dark:text-green-400" />
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           );
@@ -784,27 +931,45 @@ export function DocumentGenerationModal({
                     (skill, i) => skill !== skills.rewritten_skills[i]
                   );
                   const useOriginal = sectionSelections.skills === 'original';
+                  const isRegenerating = regeneratingSection === 'skills';
                   return (
                     <div className={`border rounded-lg overflow-hidden ${useOriginal ? 'border-gray-300 dark:border-gray-600' : 'border-green-300 dark:border-green-700'}`}>
                       <div className="bg-gray-100 dark:bg-gray-800 px-3 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
                         <span className="font-medium text-gray-900 dark:text-white text-sm">Skills</span>
                         <div className="flex items-center gap-2">
-                          {!skillsReordered && (
-                            <span className="text-xs text-gray-500 dark:text-gray-400 italic">No changes</span>
-                          )}
-                          {skillsReordered && (
-                            <button
-                              onClick={() => toggleSection('skills')}
-                              className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors ${
-                                useOriginal
-                                  ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                                  : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
-                              }`}
-                              title={useOriginal ? 'Using original - click to use rewritten' : 'Using rewritten - click to use original'}
-                            >
-                              {useOriginal ? <ToggleLeft className="w-4 h-4" /> : <ToggleRight className="w-4 h-4" />}
-                              {useOriginal ? 'Original' : 'Rewritten'}
-                            </button>
+                          {isRegenerating ? (
+                            <span className="flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400">
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              Regenerating...
+                            </span>
+                          ) : (
+                            <>
+                              {!skillsReordered && (
+                                <span className="text-xs text-gray-500 dark:text-gray-400 italic">No changes</span>
+                              )}
+                              {skillsReordered && (
+                                <button
+                                  onClick={() => toggleSection('skills')}
+                                  className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium transition-colors ${
+                                    useOriginal
+                                      ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                      : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                                  }`}
+                                  title={useOriginal ? 'Using original - click to use rewritten' : 'Using rewritten - click to use original'}
+                                >
+                                  {useOriginal ? <ToggleLeft className="w-4 h-4" /> : <ToggleRight className="w-4 h-4" />}
+                                  {useOriginal ? 'Original' : 'Rewritten'}
+                                </button>
+                              )}
+                              <button
+                                onClick={() => openRegenerateModal('skills')}
+                                className="flex items-center gap-1 px-2 py-1 rounded text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                                title="Regenerate with instructions"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5" />
+                                <span>Revise</span>
+                              </button>
+                            </>
                           )}
                         </div>
                       </div>
@@ -931,8 +1096,63 @@ export function DocumentGenerationModal({
                 className="flex items-center gap-1.5 py-1.5 px-3 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors ml-auto"
               >
                 <RefreshCw className="w-4 h-4" />
-                Regenerate
+                Regenerate All
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Regenerate Section Modal */}
+        {showRegenerateModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100]">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md mx-4 overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                  <h3 className="font-medium text-gray-900 dark:text-white">
+                    Regenerate Section
+                  </h3>
+                </div>
+                <button
+                  onClick={() => setShowRegenerateModal(null)}
+                  className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-4 space-y-4">
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Describe what you'd like to improve or change about this section:
+                </p>
+                <textarea
+                  value={regenerateInstructions}
+                  onChange={(e) => setRegenerateInstructions(e.target.value)}
+                  placeholder="e.g., Make it more concise, emphasize leadership skills, add more quantifiable achievements..."
+                  className="w-full h-24 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                  autoFocus
+                />
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => setShowRegenerateModal(null)}
+                    className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      const parts = showRegenerateModal.split('-');
+                      const sectionType = parts[0] as 'summary' | 'experience' | 'skills';
+                      const sectionIndex = parts.length > 1 ? parseInt(parts[1], 10) : undefined;
+                      handleRegenerateSection(sectionType, sectionIndex);
+                    }}
+                    disabled={!regenerateInstructions.trim()}
+                    className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center gap-2"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    Regenerate
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}

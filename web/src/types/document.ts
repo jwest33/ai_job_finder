@@ -146,6 +146,23 @@ export interface ResumeRewriteResponse {
   error?: string;
 }
 
+export interface SectionRegenerateRequest {
+  job_url: string;
+  section_type: 'summary' | 'experience' | 'skills';
+  section_index?: number;  // Required for experience sections
+  instructions: string;
+}
+
+export interface SectionRegenerateResponse {
+  success: boolean;
+  rewritten_section?: {
+    summary?: RewrittenSummary;
+    experience?: RewrittenExperienceEntry;
+    skills?: RewrittenSkills;
+  };
+  error?: string;
+}
+
 export interface CoverLetterRequest {
   job_url: string;
   tone?: 'professional' | 'enthusiastic' | 'formal';

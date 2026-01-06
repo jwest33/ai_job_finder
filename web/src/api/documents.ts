@@ -5,6 +5,8 @@ import type {
   CoverLetterRequest,
   CoverLetterResponse,
   SavedCoverLetter,
+  SectionRegenerateRequest,
+  SectionRegenerateResponse,
 } from '../types/document';
 
 // Extend timeout for AI generation operations
@@ -29,6 +31,17 @@ export const documentsApi = {
   async rewriteResume(request: ResumeRewriteRequest): Promise<ResumeRewriteResponse> {
     try {
       const response = await apiClient.post('/documents/resume/rewrite', request, {
+        timeout: AI_TIMEOUT,
+      });
+      return response.data;
+    } catch (error) {
+      handleApiError(error);
+    }
+  },
+
+  async regenerateSection(request: SectionRegenerateRequest): Promise<SectionRegenerateResponse> {
+    try {
+      const response = await apiClient.post('/documents/resume/regenerate-section', request, {
         timeout: AI_TIMEOUT,
       });
       return response.data;

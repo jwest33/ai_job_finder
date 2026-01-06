@@ -416,6 +416,247 @@ Return a JSON object with these exact fields:
 
         return changes
 
+    def regenerate_section(
+        self,
+        parsed_resume: ParsedResume,
+        job: Dict[str, Any],
+        section_type: str,
+        section_index: Optional[int],
+        instructions: str,
+        gap_analysis: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Regenerate a specific resume section based on user feedback.
+
+        Args:
+            parsed_resume: Parsed resume from ResumeParser
+            job: Job dict with title, company, description
+            section_type: 'summary', 'experience', or 'skills'
+            section_index: Index of experience entry (required for 'experience')
+            instructions: User's instructions on what to change/improve
+            gap_analysis: Optional gap analysis data
+
+        Returns:
+            Dict with the rewritten section, or None on failure
+        """
+        job_title = job.get("title", "Unknown Position")
+        company = job.get("company", "Unknown Company")
+        description = job.get("description", "")
+
+        self._current_job_title = job_title
+        self._current_company = company
+
+        keywords = self._extract_job_keywords(job, gap_analysis)
+
+        logger.info(f"Regenerating {section_type} with instructions: {instructions[:100]}...")
+
+        if section_type == 'summary':
+            result = self._regenerate_summary(
+                parsed_resume.summary, job_title, company, keywords, instructions
+            )
+            return {"summary": result} if result else None
+
+        elif section_type == 'experience':
+            if section_index is None or section_index >= len(parsed_resume.experience):
+                logger.error(f"Invalid section_index {section_index} for experience")
+                return None
+            entry = parsed_resume.experience[section_index]
+            result = self._regenerate_experience(entry, job_title, keywords, instructions)
+            return {"experience": result} if result else None
+
+        elif section_type == 'skills':
+            result = self._regenerate_skills(
+                parsed_resume.skills,
+                job.get("skills", []),
+                job.get("requirements", []),
+                instructions
+            )
+            return {"skills": result} if result else None
+
+        else:
+            logger.error(f"Unknown section_type: {section_type}")
+            return None
+
+    def _regenerate_summary(
+        self,
+        original_summary: str,
+        job_title: str,
+        company: str,
+        keywords: List[str],
+        instructions: str,
+    ) -> Optional[RewrittenSummary]:
+        """Regenerate summary with user instructions."""
+        if not original_summary or not original_summary.strip():
+            return RewrittenSummary(
+                original="",
+                rewritten="",
+                keywords_added=[],
+                changes_made=["No original summary to rewrite"]
+            )
+
+        prompt = f"""{self.system_context}
+
+TASK: Rewrite this professional summary based on user feedback.
+
+ORIGINAL SUMMARY:
+{original_summary}
+
+TARGET JOB:
+Title: {job_title}
+Company: {company}
+Key Requirements: {', '.join(keywords[:8])}
+
+USER INSTRUCTIONS FOR IMPROVEMENT:
+{instructions}
+
+INSTRUCTIONS:
+1. Follow the user's specific feedback on what to improve
+2. Keep the same general structure and approximate length
+3. Incorporate relevant keywords naturally
+4. Preserve all factual claims from the original
+5. Do NOT add new skills, achievements, or experiences that weren't in the original
+
+Return a JSON object with these exact fields:
+- "original": the original summary text
+- "rewritten": your rewritten summary
+- "keywords_added": list of keywords you incorporated
+- "changes_made": list describing what you changed based on user feedback"""
+
+        return self.validation_engine.extract(
+            prompt=prompt,
+            response_model=RewrittenSummary,
+            operation="regenerate_summary",
+            job_title=job_title,
+            job_company=company,
+        )
+
+    def _regenerate_experience(
+        self,
+        entry: ExperienceEntry,
+        job_title: str,
+        keywords: List[str],
+        instructions: str,
+    ) -> Optional[RewrittenExperienceEntry]:
+        """Regenerate experience bullets with user instructions."""
+        bullets_text = '\n'.join(f'- {b}' for b in entry.bullets)
+        bullet_count = len(entry.bullets)
+
+        prompt = f"""{self.system_context}
+
+TASK: Rewrite the bullet points for this job experience based on user feedback.
+
+ORIGINAL EXPERIENCE:
+Title: {entry.title} (DO NOT CHANGE THIS)
+Company: {entry.company} (DO NOT CHANGE THIS)
+Dates: {entry.start_date} - {entry.end_date} (DO NOT CHANGE THESE)
+Location: {entry.location} (DO NOT CHANGE THIS)
+
+Original Bullets:
+{bullets_text}
+
+TARGET JOB KEYWORDS: {', '.join(keywords[:8])}
+
+USER INSTRUCTIONS FOR IMPROVEMENT:
+{instructions}
+
+CRITICAL RULES FOR BULLETS:
+1. Follow the user's specific feedback on what to improve
+2. Keep ALL numbers, metrics, and quantified achievements EXACTLY as stated
+3. Keep exactly {bullet_count} bullets (same count as original)
+4. Only rephrase to incorporate keywords - do not add new achievements
+5. Preserve the meaning and facts of each bullet
+
+Return a JSON object with these exact fields:
+- "title": "{entry.title}"
+- "company": "{entry.company}"
+- "start_date": "{entry.start_date}"
+- "end_date": "{entry.end_date}"
+- "location": "{entry.location}"
+- "original_bullets": the original bullets as a list
+- "rewritten_bullets": your rewritten bullets as a list (exactly {bullet_count} items)
+- "bullet_changes": list describing changes made based on user feedback"""
+
+        result = self.validation_engine.extract(
+            prompt=prompt,
+            response_model=RewrittenExperienceEntry,
+            operation="regenerate_experience",
+            job_title=job_title,
+            job_company=entry.company,
+        )
+
+        if result:
+            # Force-correct immutable fields
+            result.title = entry.title
+            result.company = entry.company
+            result.start_date = entry.start_date
+            result.end_date = entry.end_date
+            result.location = entry.location
+
+        return result
+
+    def _regenerate_skills(
+        self,
+        original_skills: List[str],
+        job_skills: List[str],
+        job_requirements: List[str],
+        instructions: str,
+    ) -> Optional[RewrittenSkills]:
+        """Regenerate skills section with user instructions."""
+        if not original_skills:
+            return RewrittenSkills(
+                original_skills=[],
+                rewritten_skills=[],
+                skills_highlighted=[],
+                organization_strategy="No skills to reorder"
+            )
+
+        prompt = f"""{self.system_context}
+
+TASK: Reorganize this skills section based on user feedback.
+
+ORIGINAL SKILLS (total {len(original_skills)}):
+{', '.join(original_skills)}
+
+JOB REQUIRES THESE SKILLS:
+{', '.join(job_skills[:10]) if job_skills else 'Not specified'}
+
+USER INSTRUCTIONS FOR IMPROVEMENT:
+{instructions}
+
+INSTRUCTIONS:
+1. Follow the user's specific feedback on how to organize
+2. Reorder skills to put most relevant ones first
+3. Group related skills together if helpful
+4. DO NOT add any skills not in the original list
+5. DO NOT remove any skills from the original list
+6. The output must contain exactly {len(original_skills)} skills
+
+Return a JSON object with these exact fields:
+- "original_skills": the original skills list
+- "rewritten_skills": the reordered skills list (exactly {len(original_skills)} items)
+- "skills_highlighted": which skills are most relevant to this job
+- "organization_strategy": brief description of how you organized them based on feedback"""
+
+        result = self.validation_engine.extract(
+            prompt=prompt,
+            response_model=RewrittenSkills,
+            operation="regenerate_skills",
+            job_title=getattr(self, '_current_job_title', None),
+            job_company=getattr(self, '_current_company', None),
+        )
+
+        if result:
+            # Validate no skills were added or removed
+            original_set = set(s.lower().strip() for s in original_skills)
+            rewritten_set = set(s.lower().strip() for s in result.rewritten_skills)
+
+            if original_set != rewritten_set or len(result.rewritten_skills) != len(original_skills):
+                logger.warning("LLM modified skills list - reverting to original order")
+                result.rewritten_skills = original_skills
+                result.organization_strategy = "Kept original order (validation failed)"
+
+        return result
+
     def test_connection(self) -> bool:
         """Test if the AI provider is available."""
         try:
