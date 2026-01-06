@@ -377,11 +377,11 @@ About the Company:
 
 ---
 
-**CANDIDATE'S JOB REQUIREMENTS (CRITICAL - READ CAREFULLY):**
+**CANDIDATE'S REQUIREMENTS AND PREFERENCES:**
 
 {candidate_requirements_text}
 
-**CANDIDATE'S HARD PREFERENCES:**
+**ADDITIONAL PREFERENCES (salary/location from filters):**
 {preferences_text}
 
 ---
@@ -391,10 +391,12 @@ About the Company:
 Complete each evaluation step and track your assessment. Your final score MUST reflect the cumulative result of all steps.
 
 **STEP 1: DEAL-BREAKER CHECK**
-Review MUST-HAVES and AVOID lists:
+Review ONLY the MUST-HAVES and AVOID lists (these are the ONLY deal-breakers):
 - Does this job satisfy ALL MUST-HAVES? (Yes/No)
 - Does this job contain ANY AVOID items? (Yes/No)
 - If ANY deal-breaker is triggered → Cap score at 49 maximum
+
+IMPORTANT: Skills and other preferences are NOT deal-breakers. A job missing some preferred skills should NOT be disqualified. Only MUST-HAVES and AVOID items can disqualify a job.
 
 **STEP 2: DOMAIN MATCH CHECK**
 Read the ENTIRE job description to determine the actual role:
@@ -412,33 +414,46 @@ How well does the role match what the candidate wants?
 
 **STEP 4: QUALIFICATIONS FIT SCORING** (0-40 points)
 How qualified is the candidate for this specific role?
-- 35-40: Exceeds requirements (more experience/skills than needed)
-- 28-34: Fully qualified (meets all key requirements)
-- 20-27: Mostly qualified (meets most requirements, 1-2 gaps)
-- 12-19: Partially qualified (meets some requirements, notable gaps)
-- 0-11: Under-qualified (significant skill/experience gaps)
+- 35-40: Exceeds requirements (candidate has more experience/skills than the job requires)
+- 28-34: Fully qualified (candidate meets all key requirements listed in the job)
+- 20-27: Mostly qualified (candidate meets most requirements, missing 1-2 specific skills)
+- 12-19: Partially qualified (candidate is missing several required skills or significant experience)
+- 0-11: Under-qualified (candidate lacks fundamental skills or experience for this role)
 
 **STEP 5: PREFERENCES SCORING** (0-30 points)
-How well does the job meet stated preferences?
+How well does the job meet the candidate's stated preferences?
 - Remote/location preference met? (0-10 points)
 - Salary in acceptable range? (0-10 points)
 - Other preferences (company size, tech stack, etc.)? (0-10 points)
+
+**WHAT MATTERS VS. WHAT DOESN'T:**
+
+Things that SHOULD impact the score:
+- Does the job match the candidate's target role and domain?
+- Does the candidate have the technical skills the job requires?
+- Does the job meet the candidate's must-haves (remote, salary, etc.)?
+- Does the job trigger any avoid items?
+
+Things that should NOT significantly impact the score:
+- Lack of experience at the specific company (everyone is new to a company when they join)
+- Lack of experience in the specific industry/vertical (transferable skills matter more)
+- Candidate having MORE skills than the job mentions (this is a positive, not a gap)
+- Unclear seniority levels or job leveling systems
+- Minor differences in job title wording (e.g., "Data Platform Engineer" vs "Data Engineer")
+- Job not using ALL of the candidate's listed skills (the candidate's skills are a POOL of technologies they know - a job only needs to match SOME of them, not all)
 
 **FINAL SCORE CALCULATION:**
 1. Sum your points from Steps 3-5 (maximum 100)
 2. Apply any caps from Steps 1-2 if triggered
 3. The result is your match_score
 
-**SCORE INTERPRETATION (for reference):**
-- 90-100: Exceptional - Exact target role, exceeds qualifications, all preferences met
-- 80-89: Strong - Clear target role match, fully qualified, most preferences met
-- 70-79: Good - Target role with solid qualifications, some preference gaps
-- 60-69: Moderate - Right domain but role/qualification concerns
-- 50-59: Marginal - Adjacent domain or significant gaps
-- 0-49: Poor - Wrong domain or deal-breaker triggered
+**SCORE INTERPRETATION:**
+- 85-100: Strong match - Right role, candidate can do the job, core preferences met. May still have minor gaps.
+- 70-84: Good match - Right domain, candidate is qualified, some preference trade-offs. May have a few gaps.
+- 50-69: Moderate match - Alignment concerns (adjacent role, missing important skills, or significant preference gaps)
+- 0-49: Poor match - Wrong domain, deal-breaker triggered, or candidate lacks core required skills
 
-**CRITICAL CALIBRATION INSTRUCTION:**
-You MUST use the full scoring range. If a job clearly matches the target role and the candidate is qualified, score it 80+. Do NOT default to middle scores out of caution. Differentiate between good matches (70s), strong matches (80s), and exceptional matches (90s).
+Note: Having gaps does NOT mean the score should be low. Most real job matches have some gaps - what matters is whether the candidate can do the job and the job meets their core requirements.
 
 **REASONING REQUIREMENTS:**
 In your 2-3 sentence explanation, state:

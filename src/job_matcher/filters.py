@@ -127,7 +127,7 @@ class JobFilters:
         Filter by job title relevance
 
         Checks if title contains target keywords or matches excluded patterns.
-        Uses precomputed keywords for speed if available.
+        Lenient matching: passes if ANY keyword is found, extra qualifiers are ignored.
 
         Returns:
             Tuple of (passes: bool, rejection_reason: Optional[str])
@@ -166,7 +166,8 @@ class JobFilters:
         if not all_keywords:
             return True, None
 
-        # Check if any keyword matches
+        # LENIENT MATCHING: Pass if ANY keyword is found in title
+        # Extra qualifiers (e.g., "- Remote", "III", "Cloud Platform") are ignored
         for keyword in all_keywords:
             if keyword in title_lower:
                 return True, None

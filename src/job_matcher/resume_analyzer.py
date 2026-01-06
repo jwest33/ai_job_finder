@@ -163,7 +163,11 @@ class ResumeAnalyzer:
 
     def get_requirements_text(self) -> str:
         """
-        Format job requirements as readable text for AI prompts
+        Format job requirements as readable text for AI prompts.
+
+        Structures output to clearly separate:
+        1. DEAL-BREAKERS (must_haves, avoid) - Hard requirements that disqualify jobs
+        2. PREFERENCES (target_roles, skills, career_goals) - Nice-to-haves that boost score
 
         Returns:
             Formatted job requirements text
@@ -171,56 +175,70 @@ class ResumeAnalyzer:
         if not self.candidate_profile:
             return "No job requirements specified."
 
-        lines = ["JOB REQUIREMENTS:"]
+        lines = []
+
+        # ============================================================
+        # SECTION 1: DEAL-BREAKERS (These are the ONLY hard requirements)
+        # ============================================================
+        lines.append("=" * 60)
+        lines.append("DEAL-BREAKERS (HARD REQUIREMENTS - THESE ARE THE ONLY DISQUALIFIERS)")
+        lines.append("=" * 60)
         lines.append("")
-
-        # Target Roles
-        target_roles = self.candidate_profile.get("target_roles", [])
-        if target_roles:
-            lines.append("Target Roles:")
-            for role in target_roles:
-                lines.append(f"  • {role}")
-            lines.append("")
-
-        # Skills (new structured format)
-        skills = self.candidate_profile.get("skills", {})
-        if isinstance(skills, dict):
-            required_skills = skills.get("required", [])
-            preferred_skills = skills.get("preferred", [])
-
-            if required_skills:
-                lines.append("Required Skills:")
-                for skill in required_skills:
-                    lines.append(f"  ✓ {skill}")
-                lines.append("")
-
-            if preferred_skills:
-                lines.append("Preferred Skills:")
-                for skill in preferred_skills:
-                    lines.append(f"  + {skill}")
-                lines.append("")
-
-        # Career Goals (what they're looking for)
-        career_goals = self.candidate_profile.get("career_goals", "").strip()
-        if career_goals:
-            lines.append("Career Goals:")
-            lines.append(career_goals)
-            lines.append("")
+        lines.append("The following are the ONLY criteria that should disqualify a job.")
+        lines.append("Missing skills or not matching preferences should NOT disqualify a job.")
+        lines.append("")
 
         # Must-Haves (Deal-Breakers)
         must_haves = self.candidate_profile.get("must_haves", [])
         if must_haves:
-            lines.append("MUST-HAVES (Deal-Breakers):")
+            lines.append("MUST-HAVES (Job MUST have ALL of these or score capped at 49):")
             for item in must_haves:
-                lines.append(f"  ⚠️  {item}")
+                lines.append(f"  * {item}")
             lines.append("")
 
         # Things to Avoid
         avoid = self.candidate_profile.get("avoid", [])
         if avoid:
-            lines.append("AVOID (Red Flags):")
+            lines.append("AVOID (Job must NOT have ANY of these or score capped at 49):")
             for item in avoid:
-                lines.append(f"  🚩 {item}")
+                lines.append(f"  * {item}")
+            lines.append("")
+
+        # ============================================================
+        # SECTION 2: PREFERENCES (Nice-to-haves that boost score)
+        # ============================================================
+        lines.append("=" * 60)
+        lines.append("PREFERENCES (NICE-TO-HAVES - DO NOT DISQUALIFY JOBS FOR MISSING THESE)")
+        lines.append("=" * 60)
+        lines.append("")
+        lines.append("The following are preferences that should POSITIVELY influence the score")
+        lines.append("if matched, but should NOT disqualify jobs if missing.")
+        lines.append("")
+
+        # Target Roles
+        target_roles = self.candidate_profile.get("target_roles", [])
+        if target_roles:
+            lines.append("Target Roles (preferred job titles):")
+            for role in target_roles:
+                lines.append(f"  - {role}")
+            lines.append("")
+
+        # Skills (soft preferences)
+        skills = self.candidate_profile.get("skills", {})
+        if isinstance(skills, dict):
+            preferred_skills = skills.get("preferred", [])
+
+            if preferred_skills:
+                lines.append("Preferred Skills (bonus points if job uses these, but NOT required):")
+                for skill in preferred_skills:
+                    lines.append(f"  - {skill}")
+                lines.append("")
+
+        # Career Goals (what they're looking for)
+        career_goals = self.candidate_profile.get("career_goals", "").strip()
+        if career_goals:
+            lines.append("Career Goals (ideal role description):")
+            lines.append(career_goals)
             lines.append("")
 
         return "\n".join(lines)
